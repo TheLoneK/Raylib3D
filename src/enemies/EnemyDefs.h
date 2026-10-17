@@ -11,6 +11,7 @@ enum class EnemyType
 {
     Brute = 0,      // Melee
     Gunner,         // Ranged
+    SkullBoss,      // Boss: has its own systems (Boss.cpp) instead of EnemyBrain
     Count
 };
 

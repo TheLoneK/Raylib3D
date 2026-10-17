@@ -1,7 +1,16 @@
 # Raylib3D
 simple setup of a 3d raylib game for me to play around with
 
-A first person shooter framework in C++20 + raylib, using [flecs](https://www.flecs.dev) as an entity component system (ECS). It has a generated level with collisions, a crowd of enemies that path toward the player with a shared flow field, hitscan and projectile weapons, a 7 slot inventory with per-weapon ammo/reloading, a minimap and a HUD. There is no win condition yet.
+A first person shooter framework in C++20 + raylib, using [flecs](https://www.flecs.dev) as an entity component system (ECS). It has:
+
+- A generated 70x70 level with key doors and switch doors.
+- A crowd of enemies that path toward the player with a shared flow field.
+- A floating skull boss.
+- Hitscan, projectile and melee weapons in a 7 slot inventory with per-weapon ammo/reloading.
+- Ammo, health and 2x damage pickups.
+- A minimap and a HUD.
+
+There is no win condition yet. Notes on what multiplayer would take are in [docs/MULTIPLAYER.md](docs/MULTIPLAYER.md).
 
 ## Building
 
@@ -30,12 +39,14 @@ If PowerShell blocks the script, see `UsefulScripts.md`.
 | Mouse | Look |
 | Left mouse | Fire (hold for automatic weapons) |
 | R | Reload |
+| E | Use a wall switch |
 | 1 - 7, mouse wheel | Select weapon slot |
 | Q | Previous weapon |
 | M | Toggle expanded map |
 | F1 | Toggle help |
 | F2 | God mode (debug) |
 | F3 | Spawn another wave of enemies |
+| F4 | Make every enemy hunt you |
 | F5 | Generate a new level |
 | Enter | Restart the level after dying |
 
@@ -44,13 +55,17 @@ If PowerShell blocks the script, see `UsefulScripts.md`.
 ```
 src/
   main.cpp          window + main loop only
-  core/             Config.h (tuning), MathUtils, Render (fog/quads), RenderAssets (shared GPU meshes)
+  core/             Config.h (tuning), MathUtils, Render (fog/quads), RenderAssets (shared GPU meshes),
+                    MessageFeed (on-screen notices)
   ecs/              Components.h, GameContext.h, Ecs (component registration, Lifetime system)
-  world/            Level (generation, collision, raycasts), FlowField (pathing), SpatialGrid (neighbor queries)
+  world/            Level (tiles, doors, collision, raycasts), LevelGenerator, FlowField (pathing),
+                    SpatialGrid (neighbor queries), LinkTags (door/key/switch colors)
   player/           Player (movement, camera, health), PlayerInput
   weapons/          Weapon (definition table + ammo/reload state), Inventory (7 slots, switching)
-  enemies/          EnemyDefs (stats table), Enemies (spawn/damage/alerts), EnemySystems (AI, crowd, drawing)
-  combat/           PlayerCombat (shooting), Projectiles, Effects
+  enemies/          EnemyDefs (stats table), Enemies (spawn/damage/alerts/drops), EnemySystems (AI, crowd, drawing),
+                    BossSystems (Skull Lord)
+  combat/           PlayerCombat (shooting + melee), Projectiles, Effects, DamageZones
+  items/            Pickups (ammo/health/boost/keys), Interactions (switches, key doors)
   ui/               Hud, Minimap
   game/             Game: owns everything and runs a frame
 third_party/flecs/  flecs.c / flecs.h
@@ -64,28 +79,54 @@ Things that exist in large numbers are **entities**; their data lives in plain *
 | --- | --- |
 | Enemy | `WorldTransform`, `Collider`, `Health`, `Enemy`, `EnemyBrain`, `EnemyVisual` |
 | Corpse | an enemy that also has `Dead` + `Lifetime` |
+| Boss | the enemy components (without `EnemyBrain`) + `Boss` |
 | Projectile | `WorldTransform`, `Velocity`, `Projectile`, `Lifetime` |
+| Pickup / key | `WorldTransform`, `Pickup` |
+| Wall switch | `WorldTransform`, `WallSwitch` |
+| Damage zone | `WorldTransform`, `DamageZone`, `Lifetime` |
 | Tracer / impact | `Tracer` or `Impact`, plus `Lifetime` |
 
-Each frame `Game::Update` moves the player, updates the flow field, handles shooting, then calls `world.progress()`, which runs the update systems in order:
+Each frame `Game::Update` does the following:
 
-1. `EnemyAI`: sight checks (staggered, 5 per second per enemy), the idle / wander / chase / attack state machine, and following the flow field
-2. `BuildEnemyGrid`: puts living enemies into the spatial grid
-3. `EnemySeparation`: pushes overlapping enemies apart (and out of the player)
-4. `EnemyVisuals`, `MoveProjectiles`, then `Lifetime` (destroys expired entities)
+1. Moves the player and animates doors.
+2. Handles switches and key doors.
+3. Updates the flow field.
+4. Handles shooting.
+5. Calls `world.progress()`, which runs the update systems in order:
+   1. `EnemyAI`: sight checks (staggered, 5 per second per enemy), the idle / wander / chase / attack state machine, and following the flow field.
+   2. `BuildEnemyGrid`: puts living enemies into the spatial grid.
+   3. `EnemySeparation`: pushes overlapping enemies apart (and out of the player).
+   4. `EnemyVisuals`, then `BossAI`.
+   5. `CollectPickups`, `MoveProjectiles`, `DamageZones`.
+   6. `Lifetime`: destroys expired entities.
 
-Draw systems (`DrawEnemies`, `DrawCorpses`, `DrawProjectiles`, `DrawTracers`, `DrawImpacts`) are registered without a phase and run by `Game::Draw` inside `BeginMode3D`/`EndMode3D`.
+Draw systems are registered without a phase and run by `Game::Draw` inside `BeginMode3D`/`EndMode3D`. Translucent ones (damage zones) are registered last.
 
 Systems get the non-ECS state (level, player, flow field...) through the `GameContext` singleton: `Ecs::GetContext(it)`.
+
+**Doors and link tags**: doors are part of the level grid (`TileType::Door` + `Level::Door`), because walls, collision, raycasts and pathfinding all read the grid. Each door has a link tag: an id plus a color from `LinkTags`. A key pickup or `WallSwitch` entity with the same id opens it. Closed doors block movement, line of sight and the flow field. When a door opens, `Level::GetNavigationVersion()` changes and the flow field rebuilds, so enemies behind it start pathing through.
+
+**Level generator** (`LevelGenerator`), in order:
+
+1. Places rooms and orders them into a nearest-neighbor chain.
+2. Carves corridors along the chain.
+3. Picks some chain edges to lock.
+4. Puts each door at a corridor chokepoint in front of the locked room.
+5. Flood-fills to drop any door that crossing corridors let you walk around.
+6. Puts each key or switch somewhere reachable before its own door.
+
+The boss sits in the last room, behind the last door. `LevelGenSettings::Small` keeps the original 40x40 arena.
 
 **Pathfinding**: `FlowField` runs one shortest-path search outward from the player's cell whenever the player changes cell. Each enemy then just looks up "which neighbor cell next?" for its own cell, so 200 enemies cost the same as one search. When an enemy can see the player up close it walks straight at them instead.
 
 ## Extending
 
 - **New weapon**: add a value to `WeaponType` (`weapons/Weapon.h`) and its entry in `s_weaponDefs` (`weapons/Weapon.cpp`). Give it with `Inventory::GiveWeapon` / `SetSlot` (see `Game::GiveStartingLoadout`).
+- **New pickup**: add a value to `PickupType` (`items/PickupTypes.h`), then handle it in `Apply` and `DrawPickup` (`items/Pickups.cpp`).
+- **New door behavior**: add a value to `DoorLock` (`world/Level.h`) and handle it in `Interactions::UpdateDoors`.
 - **New enemy**: add a value to `EnemyType` (`enemies/EnemyDefs.h`) and its entry in `s_enemyDefs`. Melee vs ranged comes from `attackKind`. Spawn it with `Enemies::Spawn`.
 - **New entity kind** (pickups, barrels...): add components to `ecs/Components.h`, register them in `Ecs::RegisterComponents`, and write a `RegisterSystems(world, drawSystems)` function in a feature folder; call it from the `Game` constructor.
-- **Enemy count / behavior**: `core/Config.h` (`EnemySpawnCount`, `GunnerFraction`, `EnemiesHuntOnSpawn`).
+- **Enemy count / behavior / level size**: `core/Config.h` (`UseLargeLevel`, `EnemySpawnCount`, `GunnerFraction`, `EnemiesHuntOnSpawn`).
 - **Debugging the ECS**: set `EnableFlecsExplorer = true` in `core/Config.h`, run the game and open https://www.flecs.dev/explorer to inspect entities and systems live.
 
-Ideas not built yet: enemy line-of-sight on the minimap, pickups, sounds, real models/textures, instanced rendering if enemy counts go much higher.
+Ideas not built yet: a win condition, sounds, real models/textures, fog of war on the minimap, instanced rendering if enemy counts go much higher.

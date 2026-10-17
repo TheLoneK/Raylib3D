@@ -2,6 +2,8 @@
 
 #include "raylib.h"
 #include "enemies/EnemyDefs.h"
+#include "items/PickupTypes.h"
+#include "weapons/Weapon.h"
 
 //----------------------------------------------------------------------------------
 // ECS components: plain data, no logic. Systems (in the feature folders) do the work.
@@ -10,6 +12,10 @@
 //   corpse     = an enemy that also has Dead + Lifetime
 //   projectile = WorldTransform + Velocity + Projectile + Lifetime
 //   tracer     = Tracer + Lifetime
+//   boss       = enemy components (minus EnemyBrain) + Boss
+//   pickup     = WorldTransform + Pickup
+//   switch     = WorldTransform + WallSwitch
+//   hazard     = WorldTransform + DamageZone + Lifetime
 //----------------------------------------------------------------------------------
 
 // Shared
@@ -81,6 +87,18 @@ struct EnemyVisual
     float walkCycle;
 };
 
+struct Boss
+{
+    bool engaged;               // Wakes up once it sees the player or gets hurt
+    bool canSeePlayer;
+    float senseTimer;
+    float boltTimer;            // Next bolt volley
+    float zoneTimer;            // Next set of damage zones
+    float strafeDirection;
+    float strafeTimer;
+    float bobPhase;
+};
+
 // Combat
 enum class Team
 {
@@ -94,6 +112,34 @@ struct Projectile
     float damage;
     float radius;
     Color color;
+};
+
+struct DamageZone               // Telegraphed area that hurts anyone of the other team standing in it
+{
+    Team team;
+    float radius;
+    float height;
+    float damagePerSecond;
+    float warmup;               // Seconds of warning before it starts hurting
+    float warmupTotal;
+    Color color;
+};
+
+// Items
+struct Pickup
+{
+    PickupType type;
+    WeaponType weapon;          // Ammo only
+    int amount;                 // Ammo rounds / health points / boost seconds
+    int link;                   // Key only
+    float bobPhase;
+};
+
+struct WallSwitch
+{
+    int link;                   // Opens every door with the same link tag
+    Vector3 normal;             // Facing out of the wall
+    bool activated;
 };
 
 // Effects

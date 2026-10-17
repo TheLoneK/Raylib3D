@@ -13,14 +13,24 @@ class Player
 public:
     static constexpr float Radius = 0.4f;
     static constexpr float MaxHealth = 100.0f;
+    static constexpr float BoostedDamageMultiplier = 2.0f;
 
     void Spawn(Vector3 position, float yaw);
     void Update(const PlayerInput &input, const Level &level, float deltaTime);
     void UpdateCamera(Camera3D &camera) const;
 
     void TakeDamage(float amount);
-    void Heal(float amount);
+    void TakeDamageOverTime(float amount);      // Continuous sources (hazards): no flash spam
+    bool Heal(float amount);                    // False when already at full health
     void SetGodMode(bool enabled) { m_godMode = enabled; }
+
+    // Power-ups and keys
+    void AddDamageBoost(float seconds) { m_damageBoostTimer += seconds; }
+    float GetDamageBoostTime() const { return m_damageBoostTimer; }
+    float GetDamageMultiplier() const { return (m_damageBoostTimer > 0.0f) ? BoostedDamageMultiplier : 1.0f; }
+    void AddKey(int link) { m_keys |= (1u << static_cast<unsigned int>(link)); }
+    bool HasKey(int link) const { return (m_keys & (1u << static_cast<unsigned int>(link))) != 0u; }
+    unsigned int GetKeys() const { return m_keys; }    // Bit per link tag
 
     Vector3 GetPosition() const { return m_position; }
     Vector3 GetEyePosition() const;
@@ -59,6 +69,8 @@ private:
     bool m_isAlive = true;
     bool m_godMode = false;
     float m_damageFlash = 0.0f;         // 0..1 HUD red flash
+    float m_damageBoostTimer = 0.0f;
+    unsigned int m_keys = 0;            // Bit per link tag
 
     Inventory m_inventory;
 };

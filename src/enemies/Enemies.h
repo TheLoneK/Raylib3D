@@ -12,6 +12,7 @@ class SpatialGrid;
 namespace Enemies
 {
     inline constexpr float CorpseLifetime = 12.0f;
+    inline constexpr float BossCorpseLifetime = 60.0f;
 
     flecs::entity Spawn(flecs::world &world, EnemyType type, Vector3 position, float yaw, bool huntsPlayer);
 
@@ -20,6 +21,7 @@ namespace Enemies
                    int count, float gunnerFraction, bool huntsPlayer);
 
     bool ApplyDamage(flecs::entity enemy, float amount);    // Returns true if this killed it
+    void OnKilled(flecs::entity enemy);                     // Corpse timer, loot drop, boss message
     void Alert(EnemyBrain &brain, const EnemyDef &def, Vector3 position);
     void AlertNoise(flecs::world &world, const SpatialGrid &grid, Vector3 noisePosition, float radius);
 

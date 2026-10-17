@@ -15,6 +15,7 @@ enum class WeaponType
     Shotgun,
     Rifle,
     Plasma,
+    Chainsaw,
     Count
 };
 
@@ -27,7 +28,8 @@ enum class FireMode
 enum class ShotKind
 {
     Hitscan,    // Instant ray
-    Projectile  // Spawns a travelling projectile
+    Projectile, // Spawns a travelling projectile
+    Melee       // Hits everything in an arc in front of the player every tick
 };
 
 struct WeaponDef
@@ -36,13 +38,15 @@ struct WeaponDef
     const char *shortName = "-";        // Inventory bar label
     FireMode fireMode = FireMode::Semi;
     ShotKind shotKind = ShotKind::Hitscan;
-    float damage = 0.0f;                // Per pellet
+    float damage = 0.0f;                // Per pellet (melee: per tick)
     int pelletsPerShot = 1;
-    float spreadDegrees = 0.0f;
-    float range = 0.0f;                 // Hitscan range / projectile travel distance
-    float fireInterval = 0.0f;          // Seconds between shots
-    int magazineSize = 0;               // Shots before a reload is needed
+    float spreadDegrees = 0.0f;         // Melee: total width of the hit arc
+    float range = 0.0f;                 // Hitscan range / projectile travel distance / melee reach
+    float fireInterval = 0.0f;          // Seconds between shots (melee: between damage ticks)
+    int magazineSize = 0;               // Shots before a reload is needed, 0 = uses no ammo
     int maxReserveAmmo = 0;             // InfiniteAmmo for unlimited
+    int startingReserve = 0;            // Reserve ammo when the weapon is given
+    int ammoPickupAmount = 0;           // Reserve ammo an ammo pickup adds
     float reloadTime = 0.0f;
     float switchTime = 0.0f;            // Time to lower the previous weapon and raise this one
     float projectileSpeed = 0.0f;       // ShotKind::Projectile only
@@ -59,7 +63,7 @@ class Weapon
 {
 public:
     Weapon() = default;
-    explicit Weapon(WeaponType type);       // Full magazine and full reserve
+    explicit Weapon(WeaponType type);       // Full magazine and the starting reserve
 
     void Update(float deltaTime);           // Timers, recoil, reload completion
     bool TryFire(bool triggerPressed, bool triggerHeld);    // True when a shot happened (ammo consumed)
@@ -73,6 +77,7 @@ public:
     bool IsReloading() const { return m_reloadTimer > 0.0f; }
     float GetReloadProgress() const;        // 0..1
     bool HasInfiniteAmmo() const { return GetDef().maxReserveAmmo == InfiniteAmmo; }
+    bool UsesAmmo() const { return GetDef().magazineSize > 0; }
     int GetAmmoInMagazine() const { return m_ammoInMagazine; }
     int GetReserveAmmo() const { return m_reserveAmmo; }
     float GetRecoil() const { return m_recoil; }

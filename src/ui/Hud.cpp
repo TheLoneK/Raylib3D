@@ -3,7 +3,9 @@
 #include "ecs/Components.h"
 #include "enemies/Enemies.h"
 #include "player/Player.h"
+#include "core/MessageFeed.h"
 #include "ui/Minimap.h"
+#include "world/LinkTags.h"
 #include "world/Level.h"
 #include "raymath.h"
 #include <algorithm>
@@ -34,6 +36,14 @@ void Hud::Init(flecs::world &world)
         .with<WorldTransform>()
         .with<Collider>()
         .with<Health>()
+        .without<Dead>()
+        .without<Boss>()
+        .build();
+
+    m_bosses = world.query_builder()
+        .with<Boss>()
+        .with<Health>()
+        .with<Enemy>()
         .without<Dead>()
         .build();
 }
@@ -77,6 +87,12 @@ void Hud::DrawViewModel(const Player &player) const
     Vector2 base = Vector2{ screenWidth*0.70f, screenHeight + 20.0f } + offset;
     Vector2 tip = Vector2{ screenWidth*0.60f, screenHeight*(1.0f - def.viewLength) } + offset;
 
+    if (def.shotKind == ShotKind::Melee)
+    {
+        DrawChainsaw(player, def, base, tip);
+        return;
+    }
+
     Vector2 direction = Vector2Normalize(tip - base);
     Vector2 side = Vector2{ -direction.y, direction.x };
     float baseHalf = def.viewWidth;
@@ -110,6 +126,48 @@ void Hud::DrawViewModel(const Player &player) const
         DrawCircleV(tip, 30.0f*flash + 12.0f, Fade(Color{ 255, 200, 80, 255 }, 0.8f));
         DrawCircleV(tip, 12.0f*flash + 4.0f, Color{ 255, 250, 220, 255 });
     }
+}
+
+void Hud::DrawChainsaw(const Player &player, const WeaponDef &def, Vector2 base, Vector2 tip) const
+{
+    const Weapon &weapon = *player.GetInventory().GetActiveWeapon();
+    bool running = weapon.GetMuzzleFlash() > 0.0f;
+    float time = static_cast<float>(GetTime());
+
+    // Shake while cutting
+    if (running)
+    {
+        Vector2 shake = Vector2{ sinf(time*90.0f)*3.0f, cosf(time*77.0f)*3.0f };
+        base += shake;
+        tip += shake;
+    }
+
+    Vector2 direction = Vector2Normalize(tip - base);
+    Vector2 side = Vector2{ -direction.y, direction.x };
+    float barHalf = def.viewWidth*0.55f;
+    Vector2 barStart = base + direction*140.0f;
+
+    // Guide bar with teeth running along both edges
+    DrawQuad2D(barStart + side*barHalf, barStart - side*barHalf, tip - side*barHalf, tip + side*barHalf, Color{ 170, 170, 178, 255 });
+    DrawCircleV(tip, barHalf, Color{ 170, 170, 178, 255 });
+    float barLength = Vector2Distance(barStart, tip);
+    float scroll = running ? fmodf(time*400.0f, 16.0f) : 0.0f;
+    for (float t = scroll; t < barLength; t += 16.0f)
+    {
+        for (float edge : { -1.0f, 1.0f })
+        {
+            Vector2 root = barStart + direction*t + side*(barHalf*edge);
+            Render::DrawTriangle2D(root, root + direction*10.0f, root + direction*4.0f + side*(7.0f*edge), Color{ 60, 60, 66, 255 });
+        }
+    }
+
+    // Engine body + handle
+    Vector2 bodyCenter = base + direction*70.0f;
+    float bodyHalf = def.viewWidth*1.6f;
+    DrawQuad2D(bodyCenter + side*bodyHalf - direction*80.0f, bodyCenter - side*bodyHalf - direction*80.0f,
+               bodyCenter - side*bodyHalf + direction*80.0f, bodyCenter + side*bodyHalf + direction*80.0f, def.color);
+    DrawLineEx(bodyCenter - side*bodyHalf + direction*80.0f, bodyCenter + side*bodyHalf + direction*80.0f, 3.0f, Fade(BLACK, 0.5f));
+    DrawCircleV(bodyCenter + side*(bodyHalf*0.4f), def.viewWidth*0.9f, Color{ 205, 160, 130, 255 });   // Hand
 }
 
 //----------------------------------------------------------------------------------
@@ -169,6 +227,14 @@ void Hud::DrawAmmo(const Player &player) const
     int x = screenWidth - 220;
     int y = screenHeight - 70;
 
+    if (!weapon->UsesAmmo())
+    {
+        DrawRectangle(x, y, 200, 50, HudPanel);
+        DrawText(def.name, x + 10, y + 6, 10, HudText);
+        DrawText("--", x + 10, y + 18, 28, HudText);
+        return;
+    }
+
     const char *reserve = weapon->HasInfiniteAmmo() ? "INF" : TextFormat("%d", weapon->GetReserveAmmo());
     bool lowAmmo = (weapon->GetAmmoInMagazine() <= def.magazineSize/4);
 
@@ -219,7 +285,8 @@ void Hud::DrawInventoryBar(const Player &player) const
         const WeaponDef &def = weapon.GetDef();
         DrawRectangle(x + 8, top + 18, static_cast<int>(slotSize) - 16, 6, def.color);
         DrawTextCentered(def.shortName, centerX, top + 30, 10, HudText);
-        DrawTextCentered(TextFormat("%d/%d", weapon.GetAmmoInMagazine(), def.magazineSize), centerX, top + 44, 10, Fade(HudText, 0.7f));
+        const char *ammo = weapon.UsesAmmo() ? TextFormat("%d/%d", weapon.GetAmmoInMagazine(), weapon.GetReserveAmmo()) : "--";
+        DrawTextCentered(ammo, centerX, top + 44, 10, Fade(HudText, 0.7f));
     }
 }
 
@@ -258,14 +325,81 @@ void Hud::DrawHelp(const FrameInfo &frame) const
         "WASD move, SPACE jump, CTRL crouch",
         "Mouse look, LMB fire, R reload",
         "1-7 / wheel switch weapon, Q last weapon",
-        "M map, F2 god mode, F3 spawn wave",
+        "E use switch, M map",
+        "F2 god mode, F3 spawn wave, F4 all enemies hunt",
         "F5 new level, F1 hide help",
     };
     int lineCount = static_cast<int>(std::size(lines));
 
-    DrawRectangle(5, 5, 300, 20 + lineCount*15 + 18, HudPanel);
+    DrawRectangle(5, 5, 320, 20 + lineCount*15 + 18, HudPanel);
     for (int i = 0; i < lineCount; i++) DrawText(lines[i], 12, 12 + i*15, 10, HudText);
     DrawText(TextFormat("Seed %u  |  Enemies %d  |  %d FPS", frame.seed, m_livingEnemies.count(), GetFPS()), 12, 12 + lineCount*15 + 4, 10, HudAccent);
+}
+
+void Hud::DrawStatusEffects(const Player &player) const
+{
+    int x = 20;
+    int y = GetScreenHeight() - 100;
+
+    // Damage boost countdown
+    float boost = player.GetDamageBoostTime();
+    if (boost > 0.0f)
+    {
+        Color boostColor = { 190, 70, 255, 255 };
+        bool blink = (boost < 3.0f) && (fmodf(static_cast<float>(GetTime()), 0.4f) < 0.2f);
+        DrawRectangle(x, y, 140, 22, HudPanel);
+        DrawText(TextFormat("2X DAMAGE %2.0fs", ceilf(boost)), x + 8, y + 6, 10, blink ? WHITE : boostColor);
+        x += 150;
+    }
+
+    // Keys held
+    for (int link = 0; link < LinkTags::Count; link++)
+    {
+        if (!player.HasKey(link)) continue;
+        Color color = LinkTags::GetColor(link);
+        DrawRectangle(x, y, 22, 22, HudPanel);
+        DrawCircle(x + 8, y + 11, 5.0f, color);
+        DrawRectangle(x + 11, y + 9, 9, 4, color);
+        x += 26;
+    }
+}
+
+void Hud::DrawMessages(const FrameInfo &frame) const
+{
+    int centerX = GetScreenWidth()/2;
+    int y = GetScreenHeight() - 112;
+
+    const auto &messages = frame.messages.GetMessages();
+    for (auto it = messages.rbegin(); it != messages.rend(); ++it)
+    {
+        float alpha = std::min(1.0f, it->timeLeft/0.5f);
+        DrawTextCentered(it->text.c_str(), centerX, y, 20, Fade(it->color, alpha));
+        y -= 24;
+    }
+
+    if (!frame.prompt.empty())
+    {
+        DrawTextCentered(frame.prompt.c_str(), centerX, GetScreenHeight()/2 + 60, 20, HudAccent);
+    }
+}
+
+void Hud::DrawBossBar() const
+{
+    m_bosses.each([&](flecs::entity entity) {
+        if (!entity.get<Boss>().engaged) return;
+
+        const Health &health = entity.get<Health>();
+        const char *name = GetEnemyDef(entity.get<Enemy>().type).name;
+        int width = 500;
+        int x = (GetScreenWidth() - width)/2;
+        int y = 24;
+        float fraction = Clamp(health.current/health.max, 0.0f, 1.0f);
+
+        DrawTextCentered(name, GetScreenWidth()/2, y - 18, 20, Color{ 230, 220, 200, 255 });
+        DrawRectangle(x - 2, y - 2, width + 4, 18, Fade(BLACK, 0.7f));
+        DrawRectangle(x, y, static_cast<int>(static_cast<float>(width)*fraction), 14, Color{ 170, 70, 255, 255 });
+        DrawRectangleLines(x - 2, y - 2, width + 4, 18, Color{ 230, 220, 200, 255 });
+    });
 }
 
 void Hud::DrawDeathScreen() const
@@ -289,8 +423,11 @@ void Hud::Draw(const FrameInfo &frame) const
     if (player.GetDamageFlash() > 0.0f) DrawRectangle(0, 0, GetScreenWidth(), GetScreenHeight(), Fade(RED, player.GetDamageFlash()*0.35f));
 
     DrawHealth(player);
+    DrawStatusEffects(player);
     DrawAmmo(player);
     DrawInventoryBar(player);
+    DrawMessages(frame);
+    DrawBossBar();
     frame.minimap.Draw(frame.level, player);
     DrawHelp(frame);
 

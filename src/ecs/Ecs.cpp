@@ -16,6 +16,10 @@ namespace Ecs
         world.component<Enemy>();
         world.component<EnemyBrain>();
         world.component<EnemyVisual>();
+        world.component<Boss>();
+        world.component<DamageZone>();
+        world.component<Pickup>();
+        world.component<WallSwitch>();
         world.component<Projectile>();
         world.component<Tracer>();
         world.component<Impact>();

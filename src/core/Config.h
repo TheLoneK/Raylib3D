@@ -15,11 +15,14 @@ namespace Config
     // Largest frame step the simulation will take (prevents tunneling on hitches)
     inline constexpr float MaxFrameTime = 1.0f/30.0f;
 
-    // Enemy spawning (stress test settings)
+    // Level: true = large level (~3x area) with key/switch doors and the boss, false = the small arena
+    inline constexpr bool UseLargeLevel = true;
+
+    // Enemy spawning
     inline constexpr int EnemySpawnCount = 200;         // Spawned when a level loads
     inline constexpr int EnemyWaveSize = 50;            // Spawned with F3
     inline constexpr float GunnerFraction = 0.25f;      // Share of ranged enemies
-    inline constexpr bool EnemiesHuntOnSpawn = true;    // true: path to the player immediately, false: wander until they see you
+    inline constexpr bool EnemiesHuntOnSpawn = false;   // true: path to the player immediately (F4 does this at runtime), false: wander until they see/hear you
     inline constexpr float EnemyMinSpawnDistance = 30.0f;
 
     // Flecs explorer (https://www.flecs.dev/explorer) - connects to the running game for debugging

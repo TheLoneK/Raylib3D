@@ -38,3 +38,6 @@ Release/
 
 # Linux/macOS build output
 TestGame
+
+# CMake build folder
+build/

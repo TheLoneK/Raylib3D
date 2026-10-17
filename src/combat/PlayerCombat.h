@@ -18,6 +18,7 @@ public:
 private:
     void FireHitscan(flecs::world &world, const GameContext &context, Vector3 origin, Vector3 direction);
     void FireProjectile(flecs::world &world, const GameContext &context, Vector3 origin, Vector3 direction);
+    void FireMelee(flecs::world &world, const GameContext &context);
 
     flecs::query<> m_livingEnemies;     // Enemy, WorldTransform, Collider, without Dead
 };

@@ -25,6 +25,17 @@ static const std::array<EnemyDef, static_cast<size_t>(EnemyType::Count)> s_enemy
         .projectileSpeed = 28.0f, .projectileRadius = 0.2f, .aimSpreadDegrees = 2.5f,
         .color = Color{ 60, 120, 200, 255 },
     },
+    // EnemyType::SkullBoss (attackCooldown = time between bolt volleys)
+    EnemyDef{
+        .name = "Skull Lord", .attackKind = AttackKind::Projectile,
+        .maxHealth = 3000.0f, .radius = 1.3f, .height = 2.4f,
+        .wanderSpeed = 2.0f, .chaseSpeed = 4.0f, .turnSpeed = 3.0f,
+        .sightRange = 50.0f, .sightFovDegrees = 360.0f, .memoryTime = 999.0f,
+        .attackRange = 45.0f, .preferredRange = 14.0f,
+        .attackDamage = 12.0f, .attackWindup = 0.5f, .attackCooldown = 2.0f,
+        .projectileSpeed = 22.0f, .projectileRadius = 0.35f, .aimSpreadDegrees = 2.0f,
+        .color = Color{ 225, 215, 190, 255 },
+    },
 }};
 
 const EnemyDef &GetEnemyDef(EnemyType type)

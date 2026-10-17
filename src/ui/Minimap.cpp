@@ -4,6 +4,7 @@
 #include "ecs/Components.h"
 #include "player/Player.h"
 #include "world/Level.h"
+#include "world/LinkTags.h"
 #include "raymath.h"
 #include <algorithm>
 
@@ -16,6 +17,9 @@ void Minimap::Init(flecs::world &world, const MinimapSettings &settings)
         .with<EnemyBrain>()
         .without<Dead>()
         .build();
+    m_pickups = world.query_builder().with<WorldTransform>().with<Pickup>().build();
+    m_switches = world.query_builder().with<WorldTransform>().with<WallSwitch>().build();
+    m_bosses = world.query_builder().with<WorldTransform>().with<Boss>().without<Dead>().build();
 }
 
 Vector2 Minimap::MapView::WorldToMap(Vector3 world) const
@@ -62,11 +66,11 @@ void Minimap::DrawTiles(const MapView &view, const Level &level) const
             Rectangle cell = Rectangle{ topLeft.x, topLeft.y, cellPixels + 0.5f, cellPixels + 0.5f };
             if (!CheckCollisionRecs(cell, view.bounds)) continue;
 
-            if (!level.IsSolid(x, z))
+            if (!level.IsWall(x, z))
             {
                 DrawRectangleRec(cell, m_settings.floorColor);
             }
-            else if (!level.IsSolid(x + 1, z) || !level.IsSolid(x - 1, z) || !level.IsSolid(x, z + 1) || !level.IsSolid(x, z - 1))
+            else if (!level.IsWall(x + 1, z) || !level.IsWall(x - 1, z) || !level.IsWall(x, z + 1) || !level.IsWall(x, z - 1))
             {
                 DrawRectangleRec(cell, m_settings.wallColor);   // Only walls that border open space
             }
@@ -84,6 +88,39 @@ void Minimap::DrawEnemies(const MapView &view) const
 
         DrawCircleV(position, m_expanded ? 3.0f : 4.0f, color);
         if (brain.state == EnemyState::Attack) DrawCircleLinesV(position, 6.0f, RED);
+    });
+}
+
+void Minimap::DrawObjectives(const MapView &view, const Level &level) const
+{
+    float cellPixels = level.GetTileSize()*view.scale;
+
+    for (const Level::Door &door : level.GetDoors())
+    {
+        if (door.openAmount >= 1.0f) continue;
+        Vector2 center = view.WorldToMap(level.CellToWorld(door.cell));
+        Vector2 size = door.spansX ? Vector2{ cellPixels, std::max(3.0f, cellPixels*0.3f) } : Vector2{ std::max(3.0f, cellPixels*0.3f), cellPixels };
+        DrawRectangleV(center - size*0.5f, size, LinkTags::GetColor(door.link));
+    }
+
+    m_switches.each([&](flecs::entity entity) {
+        const WallSwitch &wallSwitch = entity.get<WallSwitch>();
+        Vector2 position = view.WorldToMap(entity.get<WorldTransform>().position);
+        DrawRectangleV(position - Vector2{ 3.0f, 3.0f }, Vector2{ 6.0f, 6.0f }, wallSwitch.activated ? GRAY : LinkTags::GetColor(wallSwitch.link));
+    });
+
+    m_pickups.each([&](flecs::entity entity) {
+        const Pickup &pickup = entity.get<Pickup>();
+        if (pickup.type != PickupType::Key) return;    // Only keys; ammo/health would clutter the map
+        Vector2 position = view.WorldToMap(entity.get<WorldTransform>().position);
+        DrawCircleV(position, 4.0f, LinkTags::GetColor(pickup.link));
+        DrawCircleLinesV(position, 6.0f, WHITE);
+    });
+
+    m_bosses.each([&](flecs::entity entity) {
+        Vector2 position = view.WorldToMap(entity.get<WorldTransform>().position);
+        DrawCircleV(position, 7.0f, Color{ 170, 70, 255, 255 });
+        DrawCircleLinesV(position, 9.0f, WHITE);
     });
 }
 
@@ -108,6 +145,7 @@ void Minimap::Draw(const Level &level, const Player &player) const
 
     BeginScissorMode(static_cast<int>(view.bounds.x), static_cast<int>(view.bounds.y), static_cast<int>(view.bounds.width), static_cast<int>(view.bounds.height));
         DrawTiles(view, level);
+        DrawObjectives(view, level);
         if (m_settings.showEnemies) DrawEnemies(view);
         DrawPlayerArrow(view, player);
     EndScissorMode();

@@ -24,6 +24,7 @@ public:
 
     void Update(float deltaTime);
 
+    Weapon *FindWeapon(WeaponType type);            // nullptr when not owned
     Weapon *GetActiveWeapon();                      // nullptr when the active slot is empty
     const Weapon *GetActiveWeapon() const;
     const Weapon &GetSlot(int slot) const { return m_slots[static_cast<size_t>(slot)]; }

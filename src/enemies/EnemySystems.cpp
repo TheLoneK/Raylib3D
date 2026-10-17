@@ -211,6 +211,13 @@ namespace
             return;
         }
 
+        // No path (behind a closed door): give up and wander until something changes
+        if (!agent.brain.canSeePlayer && !agent.context.flowField->IsReachable(*agent.context.level, agent.transform.position))
+        {
+            SetState(agent, EnemyState::Idle, MathUtils::RandomFloat(2.0f, 4.0f));
+            return;
+        }
+
         float stopDistance = agent.collider.radius + Player::Radius + 0.2f;
         FollowFlowField(agent, agent.def.chaseSpeed, stopDistance);
     }
@@ -255,7 +262,9 @@ namespace
         {
             case EnemyState::Idle:
             {
-                if (agent.brain.huntsPlayer && agent.context.player->IsAlive()) SetState(agent, EnemyState::Chase, 0.0f);
+                // Hunters only set off when a path exists (closed doors can cut them off)
+                bool reachable = agent.context.flowField->IsReachable(*agent.context.level, agent.transform.position);
+                if (agent.brain.huntsPlayer && agent.context.player->IsAlive() && reachable) SetState(agent, EnemyState::Chase, 0.0f);
                 else if (agent.brain.stateTimer <= 0.0f)
                 {
                     PickWanderTarget(agent);
@@ -439,6 +448,7 @@ namespace EnemySystems
         drawSystems.push_back(world.system<const WorldTransform, const Collider, const Enemy, const Lifetime>("DrawCorpses")
             .kind(0)
             .with<Dead>()
+            .without<Boss>()
             .each([](flecs::iter &it, size_t, const WorldTransform &transform, const Collider &collider, const Enemy &enemy, const Lifetime &lifetime) {
                 if (Render::IsFullyFogged(transform.position, collider.height)) return;
                 DrawCorpse(*Ecs::GetContext(it).assets, transform, collider, GetEnemyDef(enemy.type), lifetime);

@@ -102,6 +102,15 @@ void Inventory::Update(float deltaTime)
     }
 }
 
+Weapon *Inventory::FindWeapon(WeaponType type)
+{
+    for (Weapon &weapon : m_slots)
+    {
+        if (!weapon.IsEmpty() && (weapon.GetType() == type)) return &weapon;
+    }
+    return nullptr;
+}
+
 Weapon *Inventory::GetActiveWeapon()
 {
     if (IsSlotEmpty(m_activeSlot)) return nullptr;

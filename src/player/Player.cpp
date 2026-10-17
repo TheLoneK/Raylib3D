@@ -46,6 +46,8 @@ void Player::Update(const PlayerInput &input, const Level &level, float deltaTim
     m_damageFlash = std::max(0.0f, m_damageFlash - deltaTime*2.0f);
     if (!m_isAlive) return;
 
+    m_damageBoostTimer = std::max(0.0f, m_damageBoostTimer - deltaTime);
+
     // Look
     m_yaw -= input.lookDelta.x*MouseSensitivity;
     m_pitch = Clamp(m_pitch - input.lookDelta.y*MouseSensitivity, -PitchLimit, PitchLimit);
@@ -157,9 +159,26 @@ void Player::TakeDamage(float amount)
     }
 }
 
-void Player::Heal(float amount)
+void Player::TakeDamageOverTime(float amount)
 {
-    if (m_isAlive) m_health = std::min(MaxHealth, m_health + amount);
+    if (!m_isAlive || (amount <= 0.0f)) return;
+
+    m_damageFlash = std::max(m_damageFlash, 0.35f);
+    if (m_godMode) return;
+
+    m_health -= amount;
+    if (m_health <= 0.0f)
+    {
+        m_health = 0.0f;
+        m_isAlive = false;
+    }
+}
+
+bool Player::Heal(float amount)
+{
+    if (!m_isAlive || (m_health >= MaxHealth)) return false;
+    m_health = std::min(MaxHealth, m_health + amount);
+    return true;
 }
 
 //----------------------------------------------------------------------------------

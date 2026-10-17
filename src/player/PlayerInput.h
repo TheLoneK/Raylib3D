@@ -16,6 +16,7 @@ struct PlayerInput
     bool fireHeld = false;
     bool reloadPressed = false;
     bool lastWeaponPressed = false;
+    bool interactPressed = false;   // Use switches
     int selectSlot = -1;        // Inventory slot from the number keys, -1 when none
     int cycleDirection = 0;     // Mouse wheel: -1, 0, +1
 

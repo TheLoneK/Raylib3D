@@ -1,8 +1,12 @@
 #include "enemies/Enemies.h"
 #include "core/MathUtils.h"
+#include "core/MessageFeed.h"
+#include "ecs/GameContext.h"
+#include "items/Pickups.h"
 #include "world/Level.h"
 #include "world/SpatialGrid.h"
 #include "raymath.h"
+#include <string>
 
 namespace Enemies
 {
@@ -61,6 +65,24 @@ namespace Enemies
         }
     }
 
+    void OnKilled(flecs::entity enemy)
+    {
+        bool isBoss = enemy.has<Boss>();
+        float corpseTime = isBoss ? BossCorpseLifetime : CorpseLifetime;
+        enemy.add<Dead>();
+        enemy.set(Lifetime{ corpseTime, corpseTime });
+
+        flecs::world world = enemy.world();
+        const WorldTransform &transform = enemy.get<WorldTransform>();
+        Pickups::SpawnEnemyDrop(world, transform.position, isBoss);
+
+        if (isBoss)
+        {
+            const GameContext &context = world.get<GameContext>();
+            context.messages->Push(std::string(GetEnemyDef(enemy.get<Enemy>().type).name) + " defeated!", Color{ 255, 220, 120, 255 }, 5.0f);
+        }
+    }
+
     bool ApplyDamage(flecs::entity enemy, float amount)
     {
         if (!enemy.is_alive() || enemy.has<Dead>()) return false;
@@ -75,8 +97,7 @@ namespace Enemies
         if (health->current <= 0.0f)
         {
             health->current = 0.0f;
-            enemy.add<Dead>();
-            enemy.set(Lifetime{ CorpseLifetime, CorpseLifetime });
+            OnKilled(enemy);
             return true;
         }
 

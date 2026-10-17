@@ -14,6 +14,7 @@ PlayerInput PlayerInput::Read()
     input.fireHeld = IsMouseButtonDown(MOUSE_BUTTON_LEFT);
     input.reloadPressed = IsKeyPressed(KEY_R);
     input.lastWeaponPressed = IsKeyPressed(KEY_Q);
+    input.interactPressed = IsKeyPressed(KEY_E);
 
     for (int i = 0; i < Inventory::SlotCount; i++)
     {

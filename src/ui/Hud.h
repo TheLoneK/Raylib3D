@@ -3,8 +3,11 @@
 #include "raylib.h"
 #include "flecs.h"
 #include "ecs/GameContext.h"
+#include "weapons/Weapon.h"
+#include <string>
 
 class Level;
+class MessageFeed;
 class Player;
 class Minimap;
 
@@ -20,6 +23,8 @@ public:
         const Player &player;
         const Level &level;
         const Minimap &minimap;
+        const MessageFeed &messages;
+        const std::string &prompt;         // Interaction hint under the crosshair
         Camera3D camera;
         unsigned int seed;
     };
@@ -32,6 +37,10 @@ public:
 
 private:
     void DrawViewModel(const Player &player) const;
+    void DrawChainsaw(const Player &player, const WeaponDef &def, Vector2 base, Vector2 tip) const;
+    void DrawStatusEffects(const Player &player) const;
+    void DrawMessages(const FrameInfo &frame) const;
+    void DrawBossBar() const;
     void DrawCrosshair(const Player &player) const;
     void DrawHealth(const Player &player) const;
     void DrawAmmo(const Player &player) const;
@@ -44,4 +53,5 @@ private:
     float m_killMarkerTimer = 0.0f;
     bool m_showHelp = true;
     flecs::query<> m_livingEnemies;
+    flecs::query<> m_bosses;
 };

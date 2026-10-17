@@ -1,127 +1,55 @@
 #include "world/Level.h"
 #include "core/Render.h"
+#include "world/LinkTags.h"
 #include "raymath.h"
 #include <algorithm>
+#include <cstddef>
 
 //----------------------------------------------------------------------------------
-// Generation
+// Building
 //----------------------------------------------------------------------------------
-LevelGenSettings LevelGenSettings::Default(unsigned int seed)
+void Level::Reset(int width, int depth, float tileSize, float wallHeight, unsigned int seed)
 {
-    LevelGenSettings settings = {};
-    settings.seed = seed;
-    settings.width = 40;
-    settings.depth = 40;
-    settings.tileSize = 4.0f;
-    settings.wallHeight = 5.0f;
-    settings.minRooms = 7;
-    settings.maxRooms = 11;
-    settings.minRoomSize = 4;
-    settings.maxRoomSize = 9;
-    settings.pillarChance = 60;
-    return settings;
+    m_width = std::max(width, 8);
+    m_depth = std::max(depth, 8);
+    m_tileSize = tileSize;
+    m_wallHeight = wallHeight;
+    m_seed = seed;
+    m_navigationVersion++;
+    m_tiles.assign(static_cast<size_t>(m_width*m_depth), TileType::Wall);
+    m_doorIndex.assign(static_cast<size_t>(m_width*m_depth), -1);
+    m_rooms.clear();
+    m_doors.clear();
 }
 
 void Level::SetTile(int x, int z, TileType type)
 {
     // Never carve the outer border so the level is always closed
     if ((x <= 0) || (z <= 0) || (x >= m_width - 1) || (z >= m_depth - 1)) return;
-    m_tiles[static_cast<size_t>(z*m_width + x)] = type;
+    m_tiles[static_cast<size_t>(Index(x, z))] = type;
 }
 
-void Level::CarveRoom(const LevelRoom &room)
+void Level::AddDoor(CellCoord cell, bool spansX, int link, DoorLock lock)
 {
-    for (int z = room.z; z < room.z + room.depth; z++)
-    {
-        for (int x = room.x; x < room.x + room.width; x++) SetTile(x, z, TileType::Empty);
-    }
+    if (!IsInside(cell.x, cell.z) || (FindDoor(cell) != nullptr)) return;
+
+    SetTile(cell.x, cell.z, TileType::Door);
+    m_doorIndex[static_cast<size_t>(Index(cell.x, cell.z))] = static_cast<int>(m_doors.size());
+    m_doors.push_back(Door{ cell, spansX, link, lock, false, 0.0f });
 }
 
-void Level::CarveCorridor(CellCoord from, CellCoord to, bool horizontalFirst)
+void Level::RemoveDoor(CellCoord cell)
 {
-    int stepX = (to.x > from.x) ? 1 : -1;
-    int stepZ = (to.z > from.z) ? 1 : -1;
+    const Door *door = FindDoor(cell);
+    if (door == nullptr) return;
 
-    if (horizontalFirst)
-    {
-        for (int x = from.x; x != to.x + stepX; x += stepX) SetTile(x, from.z, TileType::Empty);
-        for (int z = from.z; z != to.z + stepZ; z += stepZ) SetTile(to.x, z, TileType::Empty);
-    }
-    else
-    {
-        for (int z = from.z; z != to.z + stepZ; z += stepZ) SetTile(from.x, z, TileType::Empty);
-        for (int x = from.x; x != to.x + stepX; x += stepX) SetTile(x, to.z, TileType::Empty);
-    }
-}
+    size_t removed = static_cast<size_t>(door - m_doors.data());
+    m_doors.erase(m_doors.begin() + static_cast<std::ptrdiff_t>(removed));
+    SetTile(cell.x, cell.z, TileType::Empty);
 
-static bool RoomsOverlap(const LevelRoom &a, const LevelRoom &b, int padding)
-{
-    return (a.x - padding < b.x + b.width) && (a.x + a.width + padding > b.x) &&
-           (a.z - padding < b.z + b.depth) && (a.z + a.depth + padding > b.z);
-}
-
-void Level::ConnectRooms(const LevelRoom &a, const LevelRoom &b)
-{
-    CarveCorridor(a.Center(), b.Center(), (GetRandomValue(0, 1) == 1));
-}
-
-void Level::PlacePillars(const LevelRoom &room)
-{
-    // Pillars sit two cells in from each corner so the room stays connected around them
-    if ((room.width < 7) || (room.depth < 7)) return;
-
-    int left = room.x + 2;
-    int right = room.x + room.width - 3;
-    int top = room.z + 2;
-    int bottom = room.z + room.depth - 3;
-
-    SetTile(left, top, TileType::Wall);
-    SetTile(right, top, TileType::Wall);
-    SetTile(left, bottom, TileType::Wall);
-    SetTile(right, bottom, TileType::Wall);
-}
-
-void Level::Generate(const LevelGenSettings &settings)
-{
-    m_width = std::max(settings.width, 8);
-    m_depth = std::max(settings.depth, 8);
-    m_tileSize = settings.tileSize;
-    m_wallHeight = settings.wallHeight;
-    m_seed = settings.seed;
-    m_rooms.clear();
-
-    SetRandomSeed(settings.seed);
-
-    // Start fully solid, then carve rooms out of it
-    m_tiles.assign(static_cast<size_t>(m_width*m_depth), TileType::Wall);
-
-    int targetRooms = GetRandomValue(settings.minRooms, settings.maxRooms);
-
-    for (int attempt = 0; (attempt < 400) && (static_cast<int>(m_rooms.size()) < targetRooms); attempt++)
-    {
-        LevelRoom room = {};
-        room.width = GetRandomValue(settings.minRoomSize, settings.maxRoomSize);
-        room.depth = GetRandomValue(settings.minRoomSize, settings.maxRoomSize);
-        if ((room.width >= m_width - 2) || (room.depth >= m_depth - 2)) continue;
-
-        room.x = GetRandomValue(1, m_width - room.width - 1);
-        room.z = GetRandomValue(1, m_depth - room.depth - 1);
-
-        bool overlaps = std::any_of(m_rooms.begin(), m_rooms.end(), [&](const LevelRoom &other) { return RoomsOverlap(room, other, 2); });
-        if (overlaps) continue;
-
-        CarveRoom(room);
-        if (!m_rooms.empty()) ConnectRooms(m_rooms.back(), room);
-        m_rooms.push_back(room);
-    }
-
-    // One extra connection creates a loop so fights are not purely linear
-    if (m_rooms.size() > 3) ConnectRooms(m_rooms.front(), m_rooms.back());
-
-    for (const LevelRoom &room : m_rooms)
-    {
-        if (GetRandomValue(0, 99) < settings.pillarChance) PlacePillars(room);
-    }
+    // Rebuild the lookup since indices shifted
+    std::fill(m_doorIndex.begin(), m_doorIndex.end(), -1);
+    for (size_t i = 0; i < m_doors.size(); i++) m_doorIndex[static_cast<size_t>(Index(m_doors[i].cell.x, m_doors[i].cell.z))] = static_cast<int>(i);
 }
 
 //----------------------------------------------------------------------------------
@@ -135,12 +63,22 @@ bool Level::IsInside(int x, int z) const
 TileType Level::GetTile(int x, int z) const
 {
     if (!IsInside(x, z)) return TileType::Wall;
-    return m_tiles[static_cast<size_t>(z*m_width + x)];
+    return m_tiles[static_cast<size_t>(Index(x, z))];
+}
+
+bool Level::IsWall(int x, int z) const
+{
+    return (GetTile(x, z) == TileType::Wall);
 }
 
 bool Level::IsSolid(int x, int z) const
 {
-    return (GetTile(x, z) == TileType::Wall);
+    switch (GetTile(x, z))
+    {
+        case TileType::Wall: return true;
+        case TileType::Door: return FindDoor(CellCoord{ x, z })->IsBlocking();
+        default: return false;
+    }
 }
 
 CellCoord Level::WorldToCell(Vector3 position) const
@@ -164,6 +102,67 @@ BoundingBox Level::GetCellBounds(int x, int z) const
         Vector3{ static_cast<float>(x)*m_tileSize, 0.0f, static_cast<float>(z)*m_tileSize },
         Vector3{ static_cast<float>(x + 1)*m_tileSize, m_wallHeight, static_cast<float>(z + 1)*m_tileSize },
     };
+}
+
+//----------------------------------------------------------------------------------
+// Doors
+//----------------------------------------------------------------------------------
+const Level::Door *Level::FindDoor(CellCoord cell) const
+{
+    if (!IsInside(cell.x, cell.z)) return nullptr;
+    int index = m_doorIndex[static_cast<size_t>(Index(cell.x, cell.z))];
+    return (index >= 0) ? &m_doors[static_cast<size_t>(index)] : nullptr;
+}
+
+Vector3 Level::GetDoorCenter(const Door &door) const
+{
+    return CellToWorld(door.cell) + Vector3{ 0.0f, m_wallHeight*0.5f, 0.0f };
+}
+
+BoundingBox Level::GetDoorBounds(const Door &door) const
+{
+    // The slab rolls up into the ceiling as it opens
+    Vector3 center = CellToWorld(door.cell);
+    float half = m_tileSize*0.5f;
+    float thickness = DoorThickness*0.5f;
+    float bottom = door.openAmount*(m_wallHeight - 0.25f);
+
+    if (door.spansX)
+    {
+        return BoundingBox{ Vector3{ center.x - half, bottom, center.z - thickness }, Vector3{ center.x + half, m_wallHeight, center.z + thickness } };
+    }
+    return BoundingBox{ Vector3{ center.x - thickness, bottom, center.z - half }, Vector3{ center.x + thickness, m_wallHeight, center.z + half } };
+}
+
+void Level::OpenDoor(int doorIndex)
+{
+    if ((doorIndex >= 0) && (doorIndex < static_cast<int>(m_doors.size()))) m_doors[static_cast<size_t>(doorIndex)].opening = true;
+}
+
+int Level::OpenDoorsWithLink(int link)
+{
+    int opened = 0;
+    for (Door &door : m_doors)
+    {
+        if ((door.link == link) && !door.opening)
+        {
+            door.opening = true;
+            opened++;
+        }
+    }
+    return opened;
+}
+
+void Level::UpdateDoors(float deltaTime)
+{
+    for (Door &door : m_doors)
+    {
+        if (!door.opening || (door.openAmount >= 1.0f)) continue;
+
+        bool wasBlocking = door.IsBlocking();
+        door.openAmount = std::min(1.0f, door.openAmount + deltaTime/DoorOpenTime);
+        if (wasBlocking != door.IsBlocking()) m_navigationVersion++;     // Pathfinding needs a rebuild
+    }
 }
 
 Vector3 Level::GetRoomCenter(int roomIndex) const
@@ -193,6 +192,27 @@ bool Level::FindOpenCellNear(CellCoord center, int radius, CellCoord &outCell) c
 //----------------------------------------------------------------------------------
 // Collision
 //----------------------------------------------------------------------------------
+bool Level::GetBlockingRect(int x, int z, Rectangle &outRect) const
+{
+    switch (GetTile(x, z))
+    {
+        case TileType::Wall:
+        {
+            outRect = Rectangle{ static_cast<float>(x)*m_tileSize, static_cast<float>(z)*m_tileSize, m_tileSize, m_tileSize };
+            return true;
+        }
+        case TileType::Door:
+        {
+            const Door *door = FindDoor(CellCoord{ x, z });
+            if (!door->IsBlocking()) return false;
+            BoundingBox box = GetDoorBounds(*door);
+            outRect = Rectangle{ box.min.x, box.min.z, box.max.x - box.min.x, box.max.z - box.min.z };
+            return true;
+        }
+        default: return false;
+    }
+}
+
 bool Level::ResolveCircle(Vector3 &position, float radius, Vector3 *outNormal) const
 {
     bool collided = false;
@@ -208,10 +228,11 @@ bool Level::ResolveCircle(Vector3 &position, float radius, Vector3 *outNormal) c
         {
             for (int x = center.x - 1; x <= center.x + 1; x++)
             {
-                if (!IsSolid(x, z)) continue;
+                Rectangle rect;
+                if (!GetBlockingRect(x, z, rect)) continue;
 
-                float minX = static_cast<float>(x)*m_tileSize, maxX = minX + m_tileSize;
-                float minZ = static_cast<float>(z)*m_tileSize, maxZ = minZ + m_tileSize;
+                float minX = rect.x, maxX = rect.x + rect.width;
+                float minZ = rect.y, maxZ = rect.y + rect.height;
 
                 // Closest point on the wall rectangle to the circle center
                 float dx = position.x - Clamp(position.x, minX, maxX);
@@ -293,12 +314,15 @@ RayCollision Level::Raycast(Ray ray, float maxDistance) const
     {
         if (!IsInside(cell.x, cell.z)) break;
 
-        if (IsSolid(cell))
+        TileType tile = GetTile(cell.x, cell.z);
+        if (tile != TileType::Empty)
         {
-            RayCollision wallHit = GetRayCollisionBox(ray, GetCellBounds(cell.x, cell.z));
-            if (wallHit.hit && (wallHit.distance < result.distance))
+            // Doors are thin and may be partly open, so a ray can pass beside or under them
+            BoundingBox box = (tile == TileType::Wall) ? GetCellBounds(cell.x, cell.z) : GetDoorBounds(*FindDoor(cell));
+            RayCollision hit = GetRayCollisionBox(ray, box);
+            if (hit.hit && (hit.distance < result.distance))
             {
-                result = wallHit;
+                result = hit;
                 break;
             }
         }
@@ -343,7 +367,7 @@ static Color GetWallColor(int x, int z)
 
 bool Level::IsWallVisible(int x, int z) const
 {
-    return !IsSolid(x + 1, z) || !IsSolid(x - 1, z) || !IsSolid(x, z + 1) || !IsSolid(x, z - 1);
+    return !IsWall(x + 1, z) || !IsWall(x - 1, z) || !IsWall(x, z + 1) || !IsWall(x, z - 1);
 }
 
 void Level::DrawFloorCell(int x, int z) const
@@ -367,14 +391,33 @@ void Level::DrawWallCell(int x, int z) const
     Vector3 alongZ = Vector3{ 0.0f, 0.0f, m_tileSize };
 
     // Only faces next to open space are visible; each direction gets its own shade for depth
-    if (!IsSolid(x + 1, z)) Render::DrawQuad3D(Vector3{ x1, 0.0f, z0 }, up, alongZ, Render::ApplyFog(Render::Shade(base, 0.85f), Vector3{ x1, midY, z0 + half }));
-    if (!IsSolid(x - 1, z)) Render::DrawQuad3D(Vector3{ x0, 0.0f, z0 }, alongZ, up, Render::ApplyFog(Render::Shade(base, 0.65f), Vector3{ x0, midY, z0 + half }));
-    if (!IsSolid(x, z + 1)) Render::DrawQuad3D(Vector3{ x0, 0.0f, z1 }, alongX, up, Render::ApplyFog(Render::Shade(base, 1.00f), Vector3{ x0 + half, midY, z1 }));
-    if (!IsSolid(x, z - 1)) Render::DrawQuad3D(Vector3{ x0, 0.0f, z0 }, up, alongX, Render::ApplyFog(Render::Shade(base, 0.75f), Vector3{ x0 + half, midY, z0 }));
+    if (!IsWall(x + 1, z)) Render::DrawQuad3D(Vector3{ x1, 0.0f, z0 }, up, alongZ, Render::ApplyFog(Render::Shade(base, 0.85f), Vector3{ x1, midY, z0 + half }));
+    if (!IsWall(x - 1, z)) Render::DrawQuad3D(Vector3{ x0, 0.0f, z0 }, alongZ, up, Render::ApplyFog(Render::Shade(base, 0.65f), Vector3{ x0, midY, z0 + half }));
+    if (!IsWall(x, z + 1)) Render::DrawQuad3D(Vector3{ x0, 0.0f, z1 }, alongX, up, Render::ApplyFog(Render::Shade(base, 1.00f), Vector3{ x0 + half, midY, z1 }));
+    if (!IsWall(x, z - 1)) Render::DrawQuad3D(Vector3{ x0, 0.0f, z0 }, up, alongX, Render::ApplyFog(Render::Shade(base, 0.75f), Vector3{ x0 + half, midY, z0 }));
 
     // Top cap (visible while jumping)
     Color top = Render::ApplyFog(Render::Shade(base, 1.15f), Vector3{ x0 + half, m_wallHeight, z0 + half });
     Render::DrawQuad3D(Vector3{ x0, m_wallHeight, z0 }, alongZ, alongX, top);
+}
+
+void Level::DrawDoor(const Door &door) const
+{
+    BoundingBox box = GetDoorBounds(door);
+    Vector3 size = box.max - box.min;
+    Vector3 center = (box.min + box.max)*0.5f;
+    if (size.y < 0.05f) return;
+
+    Color linkColor = LinkTags::GetColor(door.link);
+    Color slab = Render::ApplyFog(Render::Shade(Color{ 110, 104, 96, 255 }, 0.9f), center);
+    DrawCubeV(center, size, slab);
+    DrawCubeWiresV(center, size, Render::ApplyFog(Render::Shade(linkColor, 0.5f), center));
+
+    // Colored band (key doors) or two bands (switch doors) so the link is readable from both sides
+    Vector3 bandSize = door.spansX ? Vector3{ size.x*0.9f, 0.35f, size.z + 0.04f } : Vector3{ size.x + 0.04f, 0.35f, size.z*0.9f };
+    float bandY = std::max(box.min.y + 0.4f, m_wallHeight*0.45f);
+    if (bandY + 0.2f < box.max.y) DrawCubeV(Vector3{ center.x, bandY, center.z }, bandSize, Render::ApplyFog(linkColor, center));
+    if ((door.lock == DoorLock::Switch) && (bandY + 1.0f < box.max.y)) DrawCubeV(Vector3{ center.x, bandY + 0.8f, center.z }, bandSize, Render::ApplyFog(linkColor, center));
 }
 
 void Level::Draw() const
@@ -383,8 +426,16 @@ void Level::Draw() const
     {
         for (int x = 0; x < m_width; x++)
         {
-            if (!IsSolid(x, z)) DrawFloorCell(x, z);
+            // Skip cells the fog hides completely; the big level has thousands of them
+            if (Render::IsFullyFogged(CellToWorld(CellCoord{ x, z }), m_tileSize)) continue;
+
+            if (!IsWall(x, z)) DrawFloorCell(x, z);
             else if (IsWallVisible(x, z)) DrawWallCell(x, z);
         }
+    }
+
+    for (const Door &door : m_doors)
+    {
+        if (!Render::IsFullyFogged(GetDoorCenter(door), m_tileSize)) DrawDoor(door);
     }
 }

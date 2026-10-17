@@ -44,9 +44,13 @@ private:
     MapView GetMapView(const Level &level, const Player &player) const;
     void DrawTiles(const MapView &view, const Level &level) const;
     void DrawEnemies(const MapView &view) const;
+    void DrawObjectives(const MapView &view, const Level &level) const;     // Doors, keys, switches, boss
     void DrawPlayerArrow(const MapView &view, const Player &player) const;
 
     MinimapSettings m_settings;
     bool m_expanded = false;
     flecs::query<> m_livingEnemies;
+    flecs::query<> m_pickups;
+    flecs::query<> m_switches;
+    flecs::query<> m_bosses;
 };

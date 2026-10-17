@@ -9,6 +9,7 @@ class Player;
 class FlowField;
 class SpatialGrid;
 class RenderAssets;
+class MessageFeed;
 
 struct CombatStats             // Reset every frame, read by the HUD (hit markers)
 {
@@ -18,10 +19,11 @@ struct CombatStats             // Reset every frame, read by the HUD (hit marker
 
 struct GameContext
 {
-    const Level *level;
+    Level *level;
     Player *player;
     const FlowField *flowField;
     SpatialGrid *enemyGrid;
     const RenderAssets *assets;
     CombatStats *combatStats;
+    MessageFeed *messages;
 };

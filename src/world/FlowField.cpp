@@ -33,7 +33,8 @@ bool FlowField::Update(const Level &level, Vector3 targetPosition)
 {
     CellCoord target = level.WorldToCell(targetPosition);
     bool sizeChanged = (m_width != level.GetWidth()) || (m_depth != level.GetDepth());
-    if (m_valid && !sizeChanged && (target == m_target)) return false;
+    bool levelChanged = (m_navigationVersion != level.GetNavigationVersion());
+    if (m_valid && !sizeChanged && !levelChanged && (target == m_target)) return false;
 
     Build(level, target);
     return true;
@@ -45,6 +46,7 @@ void FlowField::Build(const Level &level, CellCoord target)
     m_depth = level.GetDepth();
     m_target = target;
     m_valid = true;
+    m_navigationVersion = level.GetNavigationVersion();
 
     size_t cellCount = static_cast<size_t>(m_width*m_depth);
     m_distance.assign(cellCount, Unreachable);
@@ -85,6 +87,11 @@ float FlowField::GetDistance(CellCoord cell) const
 {
     if (!m_valid || (cell.x < 0) || (cell.z < 0) || (cell.x >= m_width) || (cell.z >= m_depth)) return Unreachable;
     return m_distance[static_cast<size_t>(Index(cell))];
+}
+
+bool FlowField::IsReachable(const Level &level, Vector3 position) const
+{
+    return GetDistance(level.WorldToCell(position)) < Unreachable;
 }
 
 bool FlowField::GetNextWaypoint(const Level &level, Vector3 position, Vector3 &outWaypoint) const

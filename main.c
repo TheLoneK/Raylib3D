@@ -70,6 +70,7 @@ static void DrawLevel(void);
 static void UpdateCameraFPS(Camera *camera);
 static void UpdateBody(Body *body, float rot, char side, char forward, bool jumpPressed, bool crouchHold);
 
+
 //------------------------------------------------------------------------------------
 // Program main entry point
 //------------------------------------------------------------------------------------
@@ -77,15 +78,17 @@ int main(void)
 {
     // Initialization
     //--------------------------------------------------------------------------------------
-    const int screenWidth = 800;
-    const int screenHeight = 450;
+    const int screenWidth = 1280;
+    const int screenHeight = 720;
+
+    
 
     InitWindow(screenWidth, screenHeight, "raylib [core] example - 3d camera fps");
 
     // Initialize camera variables
     // NOTE: UpdateCameraFPS() takes care of the rest
     Camera camera = { 0 };
-    camera.fovy = 60.0f;
+    camera.fovy = 80.0f;
     camera.projection = CAMERA_PERSPECTIVE;
     camera.position = (Vector3){
         player.position.x,
@@ -97,7 +100,7 @@ int main(void)
 
     DisableCursor();        // Limit cursor to relative movement inside the window
 
-    SetTargetFPS(60);       // Set our game to run at 60 frames-per-second
+    SetTargetFPS(200);       // Set our game to run at 60 frames-per-second
     //--------------------------------------------------------------------------------------
 
     // Main game loop
@@ -122,6 +125,7 @@ int main(void)
             player.position.z,
         };
 
+        /*
         if (player.isGrounded && ((forward != 0) || (sideway != 0)))
         {
             headTimer += delta*3.0f;
@@ -133,7 +137,7 @@ int main(void)
             walkLerp = Lerp(walkLerp, 0.0f, 10.0f*delta);
             camera.fovy = Lerp(camera.fovy, 60.0f, 5.0f*delta);
         }
-
+        */
         lean.x = Lerp(lean.x, sideway*0.02f, 10.0f*delta);
         lean.y = Lerp(lean.y, forward*0.015f, 10.0f*delta);
 
@@ -145,6 +149,8 @@ int main(void)
         BeginDrawing();
 
             ClearBackground(RAYWHITE);
+
+            DrawFPS(1200, 10);
 
             BeginMode3D(camera);
                 DrawLevel();
@@ -308,9 +314,11 @@ static void DrawLevel(void)
     const Vector3 towerSize = (Vector3){ 16.0f, 32.0f, 16.0f };
     const Color towerColor = (Color){ 150, 200, 200, 255 };
 
+
     Vector3 towerPos = (Vector3){ 16.0f, 16.0f, 16.0f };
     DrawCubeV(towerPos, towerSize, towerColor);
     DrawCubeWiresV(towerPos, towerSize, DARKBLUE);
+
 
     towerPos.x *= -1;
     DrawCubeV(towerPos, towerSize, towerColor);

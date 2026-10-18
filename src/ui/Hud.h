@@ -29,6 +29,7 @@ public:
         unsigned int seed;
         int levelNumber;
         float levelTransitionTime;          // < 0 when no transition is pending
+        bool customViewModel;               // An imported weapon model was drawn instead of the 2D one
     };
 
     void Init(flecs::world &world);

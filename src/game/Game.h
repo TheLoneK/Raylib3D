@@ -2,6 +2,7 @@
 
 #include "raylib.h"
 #include "flecs.h"
+#include "assets/AssetLibrary.h"
 #include "combat/PlayerCombat.h"
 #include "core/MessageFeed.h"
 #include "core/RenderAssets.h"
@@ -11,6 +12,7 @@
 #include "player/Player.h"
 #include "ui/Hud.h"
 #include "ui/Minimap.h"
+#include "ui/ViewModel3D.h"
 #include "world/FlowField.h"
 #include "world/Level.h"
 #include "world/LevelGenerator.h"
@@ -53,6 +55,7 @@ private:
     void SpawnBossNearPlayer();
     void SpawnElevatorNearPlayer();
     void UpdateLevelTransition(float deltaTime);
+    void ReloadAssetLibrary();
 
     flecs::world m_world;                       // Declared first so it is destroyed last
     Level m_level;
@@ -60,6 +63,8 @@ private:
     FlowField m_flowField;
     SpatialGrid m_enemyGrid;
     RenderAssets m_assets;
+    AssetLibrary m_library;                     // Imported models/textures (Assets/library.ini, edited with the asset editor)
+    ViewModel3D m_viewModel;
     CombatStats m_combatStats = {};
     GameEvents m_events = {};
     SolidBodyList m_solidBodies;                // Platforms the player collides with, from the last frame

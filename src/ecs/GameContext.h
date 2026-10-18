@@ -11,6 +11,7 @@ class Player;
 class FlowField;
 class SpatialGrid;
 class RenderAssets;
+class AssetLibrary;
 class MessageFeed;
 
 struct CombatStats             // Reset every frame, read by the HUD (hit markers)
@@ -33,6 +34,7 @@ struct GameContext
     const FlowField *flowField;
     SpatialGrid *enemyGrid;
     const RenderAssets *assets;
+    const AssetLibrary *library;    // Imported models that replace the built-in looks (see Editor/)
     CombatStats *combatStats;
     MessageFeed *messages;
     GameEvents *events;

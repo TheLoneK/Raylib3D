@@ -4,13 +4,15 @@
 #   ./run.ps1 -Clean     delete the build folder first (use after changing compilers or CMakeLists.txt options)
 #   ./run.ps1 -NoRun     build only
 #   ./run.ps1 -Debug     debug build (slower game, better for a debugger)
+#   ./run.ps1 -Editor    build, then run the asset editor instead of the game
 #
 # The first build compiles flecs and takes a while; later builds only recompile changed files.
 
 param(
     [switch]$Clean,
     [switch]$NoRun,
-    [switch]$Debug
+    [switch]$Debug,
+    [switch]$Editor
 )
 
 $ErrorActionPreference = "Stop"
@@ -40,4 +42,6 @@ if (-not (Test-Path "$buildDir/CMakeCache.txt")) {
 cmake --build $buildDir --parallel
 if ($LASTEXITCODE -ne 0) { Write-Host "Build failed" -ForegroundColor Red; exit $LASTEXITCODE }
 
-if (-not $NoRun) { ./TestGame.exe }
+if (-not $NoRun) {
+    if ($Editor) { ./AssetEditor.exe } else { ./TestGame.exe }
+}

@@ -1,5 +1,7 @@
 #include "bosses/Lich.h"
 #include "bosses/Bosses.h"
+#include "assets/AssetLibrary.h"
+#include "assets/AssetSlots.h"
 #include "combat/DamageZones.h"
 #include "combat/Effects.h"
 #include "combat/Projectiles.h"
@@ -227,6 +229,38 @@ namespace
     //------------------------------------------------------------------------------
     // Drawing
     //------------------------------------------------------------------------------
+    // Imported models (asset editor). Return false when the slot has none, so the built-in look is drawn
+    bool DrawLichModel(const AssetLibrary &library, const WorldTransform &transform, Color tint, Color flashColor, float flash, float sink)
+    {
+        const char *slot = GetEnemySlotId(EnemyType::Lich);
+        if (!library.HasModel(slot)) return false;
+
+        AssetDrawParams params;
+        params.placement = AssetPlacement(transform.position - Vector3{ 0.0f, sink, 0.0f }, transform.yaw);
+        params.fitSize = GetEnemyFitSize(EnemyType::Lich);
+        params.tint = tint;
+        params.flashColor = flashColor;
+        params.flash = flash;
+        params.time = static_cast<float>(GetTime());
+        library.DrawSlot(slot, params);
+        return true;
+    }
+
+    bool DrawCrystalModel(const AssetLibrary &library, const WorldTransform &transform, float bob, Color flashColor, float flash)
+    {
+        const char *slot = GetEnemySlotId(EnemyType::LichCrystal);
+        if (!library.HasModel(slot)) return false;
+
+        AssetDrawParams params;
+        params.placement = AssetPlacement(transform.position + Vector3{ 0.0f, 0.1f + bob, 0.0f }, transform.yaw);
+        params.fitSize = GetEnemyFitSize(EnemyType::LichCrystal);
+        params.flashColor = flashColor;
+        params.flash = flash;
+        params.time = static_cast<float>(GetTime());
+        library.DrawSlot(slot, params);
+        return true;
+    }
+
     void DrawLichBody(const RenderAssets &assets, const WorldTransform &transform, float bob, Color robe, float glow, float sink)
     {
         Vector3 up = { 0.0f, 1.0f, 0.0f };
@@ -301,9 +335,14 @@ namespace Lich
             .kind(0)
             .without<Dead>()
             .each([](flecs::iter &it, size_t row, const WorldTransform &transform, const Boss &boss, const LichAttacks &attacks, const EnemyVisual &visual) {
-                const RenderAssets &assets = *Ecs::GetContext(it).assets;
+                const GameContext &context = Ecs::GetContext(it);
+                const RenderAssets &assets = *context.assets;
                 Color robe = Render::ApplyFog(ColorLerp(Def().color, WHITE, visual.hitFlash), transform.position);
-                DrawLichBody(assets, transform, 0.0f, robe, attacks.castFlash, 0.0f);
+                Color flashColor = (visual.hitFlash > 0.0f) ? WHITE : MagicColor;
+                if (!DrawLichModel(*context.library, transform, WHITE, flashColor, std::max(visual.hitFlash, attacks.castFlash*0.5f), 0.0f))
+                {
+                    DrawLichBody(assets, transform, 0.0f, robe, attacks.castFlash, 0.0f);
+                }
 
                 Vector3 center = transform.position + Vector3{ 0.0f, 1.6f, 0.0f };
                 assets.DrawCylinder(Vector3{ transform.position.x, 0.02f, transform.position.z }, 1.0f, 0.01f, Fade(BLACK, 0.35f));
@@ -323,22 +362,32 @@ namespace Lich
                 // Sinks into the floor
                 float t = Clamp((lifetime.total - lifetime.remaining)/DeathTime, 0.0f, 1.0f);
                 Color robe = Render::ApplyFog(Render::Shade(Def().color, 0.5f), transform.position);
-                DrawLichBody(*Ecs::GetContext(it).assets, transform, 0.0f, robe, 0.0f, t*(transform.position.y + 2.6f));
+                const GameContext &context = Ecs::GetContext(it);
+                float sink = t*(transform.position.y + 2.6f);
+                if (!DrawLichModel(*context.library, transform, Color{ 120, 120, 120, 255 }, WHITE, 0.0f, sink))
+                {
+                    DrawLichBody(*context.assets, transform, 0.0f, robe, 0.0f, sink);
+                }
             }));
 
         drawSystems.push_back(world.system<const WorldTransform, const LichCrystal, const EnemyVisual, const Health>("DrawLichCrystals")
             .kind(0)
             .without<Dead>()
             .each([](flecs::iter &it, size_t, const WorldTransform &transform, const LichCrystal &crystal, const EnemyVisual &visual, const Health &health) {
-                const RenderAssets &assets = *Ecs::GetContext(it).assets;
+                const GameContext &context = Ecs::GetContext(it);
+                const RenderAssets &assets = *context.assets;
                 float bob = sinf(crystal.spin*2.0f)*0.15f;
                 Vector3 middle = transform.position + Vector3{ 0.0f, 1.0f + bob, 0.0f };
                 float damaged = 1.0f - health.current/health.max;
                 Color color = ColorLerp(ColorLerp(MagicColor, Color{ 255, 120, 120, 255 }, damaged*0.6f), WHITE, visual.hitFlash);
 
                 // Diamond (two cones) plus a tether to the Lich it protects
-                assets.DrawCone(middle, 0.55f, 0.9f, color);
-                assets.DrawCone(middle, 0.55f, -0.9f, Render::Shade(color, 0.8f));
+                Color flashColor = (visual.hitFlash > 0.0f) ? WHITE : Color{ 255, 120, 120, 255 };
+                if (!DrawCrystalModel(*context.library, transform, bob, flashColor, std::max(visual.hitFlash, damaged*0.4f)))
+                {
+                    assets.DrawCone(middle, 0.55f, 0.9f, color);
+                    assets.DrawCone(middle, 0.55f, -0.9f, Render::Shade(color, 0.8f));
+                }
                 assets.DrawSphere(middle, 0.9f, Fade(MagicColor, 0.12f));
 
                 flecs::entity owner = it.world().entity(crystal.owner);

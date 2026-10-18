@@ -12,6 +12,7 @@ A first person shooter framework in C++20 + raylib, using [flecs](https://www.fl
 - Elevators and moving platforms the player can ride; some wait for a wall switch.
 - Wall switches that send a trigger event to whatever is wired to their channel (doors, platforms...).
 - A minimap and a HUD.
+- An asset editor (`Editor/`) for importing your own models and textures and putting them on the enemies, bosses and weapons.
 
 Killing a boss starts a 20 second countdown to the next level, and your weapons, ammo and health carry over. There is no win condition yet. Notes on what multiplayer would take are in [docs/MULTIPLAYER.md](docs/MULTIPLAYER.md).
 
@@ -24,6 +25,7 @@ Requirements: CMake 3.16+ and a MinGW gcc/g++ that supports C++20 (GCC 10 or new
 ./run.ps1 -NoRun     # build only
 ./run.ps1 -Debug     # debug build in build/Debug
 ./run.ps1 -Clean     # wipe build/ and start over
+./run.ps1 -Editor    # build, then open the asset editor instead of the game
 ```
 
 If PowerShell blocks the script, see `UsefulScripts.md`.
@@ -31,7 +33,7 @@ If PowerShell blocks the script, see `UsefulScripts.md`.
 - **raylib**: if `lib/` contains your prebuilt `libraylib.a` (headers in `include/`) it is used. Otherwise CMake downloads and builds raylib 6.2 automatically (needs git, first build only).
 - **flecs** lives in `third_party/flecs/` and is compiled once as a static library. The first build takes a minute because of it; after that only changed files rebuild.
 - Every `.cpp` under `src/` is picked up automatically, so new files and folders need no build changes.
-- The game is built as `TestGame.exe` in the project root.
+- The game is built as `TestGame.exe` and the asset editor as `AssetEditor.exe`, both in the project root.
 
 ## Controls
 
@@ -53,8 +55,15 @@ If PowerShell blocks the script, see `UsefulScripts.md`.
 | F4 | Make every enemy hunt you |
 | F6 | Spawn a random boss in front of you |
 | F7 | Spawn an elevator in front of you |
+| F8 | Reload the asset library (after saving in the asset editor) |
 | F5 | Generate a new level |
 | Enter | Restart the level after dying |
+
+## Custom models and textures
+
+Run `./run.ps1 -Editor` to open the asset editor. Import models and textures into `Assets/` (button, or drag files onto the window), pick an enemy or weapon on the right, press **Use selected**, line it up in the viewport, and **Save**. The game reads `Assets/library.ini` at startup; press **F8** in a running game to reload it.
+
+Models: `.glb .gltf .obj .iqm .vox .m3d` (glTF skeletal animations play). Textures: `.png .jpg .bmp .tga .gif .qoi .psd .hdr .dds`. Anything without a model keeps its built-in look. See [Editor/README.md](Editor/README.md) for details.
 
 ## Code layout
 
@@ -77,8 +86,12 @@ src/
   platforms/        PlatformTypes (spawn data + Elevator/Shuttle presets), PlatformPath (waypoint following),
                     Platforms (spawning, movement/carry systems, switch reaction, drawing)
   triggers/         Triggers (send a channel to its receivers), TriggerChannels (channel numbering)
-  ui/               Hud, Minimap
+  assets/           AssetSlots (which enemies/weapons can be skinned), AssetManifest (Assets/library.ini),
+                    AssetLibrary (loads and draws imported models: fog, light, GPU skinning). Shared with the editor
+  ui/               Hud, Minimap, ViewModel3D (imported first person weapon models)
   game/             Game: owns everything and runs a frame
+Editor/             Asset editor (its own executable, see Editor/README.md)
+Assets/             Imported models/textures and library.ini (written by the editor)
 third_party/flecs/  flecs.c / flecs.h
 ```
 

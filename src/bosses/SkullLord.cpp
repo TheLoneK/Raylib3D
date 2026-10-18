@@ -1,5 +1,7 @@
 #include "bosses/SkullLord.h"
 #include "bosses/Bosses.h"
+#include "assets/AssetLibrary.h"
+#include "assets/AssetSlots.h"
 #include "combat/DamageZones.h"
 #include "combat/Projectiles.h"
 #include "core/MathUtils.h"
@@ -28,6 +30,23 @@ namespace
     constexpr float DeathFallTime = 1.0f;
 
     const EnemyDef &Def() { return GetEnemyDef(EnemyType::SkullLord); }
+
+    // Imported model (asset editor): fills the skull sphere, bottom of the sphere on the model's feet
+    bool DrawSkullModel(const AssetLibrary &library, Vector3 center, float radius, float yaw, Color tint, Color flashColor, float flash)
+    {
+        const char *slot = GetEnemySlotId(EnemyType::SkullLord);
+        if (!library.HasModel(slot)) return false;
+
+        AssetDrawParams params;
+        params.placement = AssetPlacement(center - Vector3{ 0.0f, radius, 0.0f }, yaw);
+        params.fitSize = GetEnemyFitSize(EnemyType::SkullLord);
+        params.tint = tint;
+        params.flashColor = flashColor;
+        params.flash = flash;
+        params.time = static_cast<float>(GetTime());
+        library.DrawSlot(slot, params);
+        return true;
+    }
 
     Vector3 GetMouth(const WorldTransform &transform, const Collider &collider)
     {
@@ -140,12 +159,17 @@ namespace SkullLord
             .kind(0)
             .without<Dead>()
             .each([](flecs::iter &it, size_t, const WorldTransform &transform, const Boss &boss, const SkullLordAttacks &attacks, const Collider &collider, const EnemyVisual &visual) {
-                const RenderAssets &assets = *Ecs::GetContext(it).assets;
+                const GameContext &context = Ecs::GetContext(it);
+                const RenderAssets &assets = *context.assets;
                 Vector3 center = Bosses::GetCenter(transform, collider);
                 float charge = (boss.engaged && (attacks.boltTimer < ChargeTime) && boss.canSeePlayer) ? 1.0f - attacks.boltTimer/ChargeTime : 0.0f;
 
                 Color bone = ColorLerp(Def().color, WHITE, visual.hitFlash);
-                DrawSkull(assets, center, collider.radius, transform.yaw, Render::ApplyFog(bone, center), charge, false);
+                Color flashColor = (visual.hitFlash > 0.0f) ? WHITE : ZoneColor;
+                if (!DrawSkullModel(*context.library, center, collider.radius, transform.yaw, WHITE, flashColor, std::max(visual.hitFlash, charge*0.4f)))
+                {
+                    DrawSkull(assets, center, collider.radius, transform.yaw, Render::ApplyFog(bone, center), charge, false);
+                }
 
                 // Shadow on the floor and a faint aura that brightens while charging
                 assets.DrawCylinder(Vector3{ transform.position.x, 0.02f, transform.position.z }, collider.radius*0.9f, 0.01f, Fade(BLACK, 0.35f));
@@ -162,7 +186,11 @@ namespace SkullLord
                 float height = Lerp(transform.position.y + collider.height*0.5f, collider.radius*0.9f, fall*fall);
                 Vector3 center = Vector3{ transform.position.x, height, transform.position.z };
                 Color bone = Render::ApplyFog(Render::Shade(Def().color, 0.5f), center);
-                DrawSkull(*Ecs::GetContext(it).assets, center, collider.radius, transform.yaw, bone, 0.0f, true);
+                const GameContext &context = Ecs::GetContext(it);
+                if (!DrawSkullModel(*context.library, center, collider.radius, transform.yaw, Color{ 120, 120, 120, 255 }, WHITE, 0.0f))
+                {
+                    DrawSkull(*context.assets, center, collider.radius, transform.yaw, bone, 0.0f, true);
+                }
             }));
     }
 }

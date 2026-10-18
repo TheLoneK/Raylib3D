@@ -10,6 +10,7 @@
 #include "enemies/Enemies.h"
 #include "enemies/EnemySystems.h"
 #include "items/Pickups.h"
+#include "platforms/Platforms.h"
 #include <algorithm>
 #include <string>
 
@@ -25,15 +26,17 @@ Game::Game(unsigned int seed)
 {
     m_camera.fovy = Config::CameraFov;
     m_camera.projection = CAMERA_PERSPECTIVE;
+    m_level.SetSolidBodies(&m_solidBodies);     // Shots and sight checks hit platforms too
 
     // ECS: components, shared context, then systems. Systems in the same phase run in registration order
     Ecs::RegisterComponents(m_world);
-    m_world.set(GameContext{ &m_level, &m_player, &m_flowField, &m_enemyGrid, &m_assets, &m_combatStats, &m_messages, &m_events });
+    m_world.set(GameContext{ &m_level, &m_player, &m_flowField, &m_enemyGrid, &m_assets, &m_combatStats, &m_messages, &m_events, &m_solidBodies });
 
     EnemySystems::Register(m_world, m_drawSystems);
     Bosses::RegisterSystems(m_world, m_drawSystems);
     Pickups::RegisterSystems(m_world, m_drawSystems);
     Interactions::RegisterSystems(m_world, m_drawSystems);
+    Platforms::RegisterSystems(m_world, m_drawSystems);
     Projectiles::RegisterSystems(m_world, m_drawSystems);
     Effects::RegisterSystems(m_world, m_drawSystems);
     DamageZones::RegisterSystems(m_world, m_drawSystems);     // Last: its columns are translucent
@@ -70,9 +73,16 @@ void Game::SpawnEnemies(int count)
 void Game::SpawnLevelFeatures(const LevelFeatures &features)
 {
     for (const KeySpawn &key : features.keys) Pickups::Spawn(m_world, key.position, PickupType::Key, WeaponType::None, key.link);
-    for (const SwitchSpawn &wallSwitch : features.switches) Interactions::SpawnSwitch(m_world, wallSwitch.position, wallSwitch.normal, wallSwitch.link);
+    for (const SwitchSpawn &wallSwitch : features.switches) Interactions::SpawnSwitch(m_world, wallSwitch);
     for (const PickupSpawn &pickup : features.pickups) Pickups::Spawn(m_world, pickup.position, pickup.type, pickup.weapon);
+    for (const PlatformSpawn &platform : features.platforms) Platforms::Spawn(m_world, platform);
     if (features.hasBoss) Bosses::SpawnRandom(m_world, features.bossPosition);
+
+    // Door switches send their door's link as the channel; these receivers open the doors
+    for (const Level::Door &door : m_level.GetDoors())
+    {
+        if (door.lock == DoorLock::Switch) Interactions::SpawnDoorOpener(m_world, door.link, door.link);
+    }
 }
 
 void Game::LoadLevel(unsigned int seed, bool keepLoadout)
@@ -106,8 +116,11 @@ void Game::LoadLevel(unsigned int seed, bool keepLoadout)
     m_world.delete_with<Impact>();
     m_world.delete_with<Pickup>();
     m_world.delete_with<WallSwitch>();
+    m_world.delete_with<TriggerTarget>();     // Door openers and anything else wired to this level's switches
     m_world.delete_with<DamageZone>();
     m_world.delete_with<StuckArrow>();
+    m_world.delete_with<Platform>();
+    m_solidBodies.clear();          // Rebuilt by the next world.progress()
 
     SpawnLevelFeatures(features);
     SpawnEnemies(Config::EnemySpawnCount);
@@ -127,6 +140,13 @@ void Game::SpawnBossNearPlayer()
     Vector3 spot = Bosses::FindOpenSpotNear(m_level, m_player.GetPosition(), yaw, 14.0f);
     flecs::entity boss = Bosses::SpawnRandom(m_world, spot);
     m_messages.Push(std::string("Spawned the ") + GetEnemyDef(boss.get<Enemy>().type).name, Color{ 170, 70, 255, 255 });
+}
+
+void Game::SpawnElevatorNearPlayer()
+{
+    Vector3 spot = Bosses::FindOpenSpotNear(m_level, m_player.GetPosition(), m_player.GetYaw(), 4.0f);
+    Platforms::Spawn(m_world, PlatformSpawn::Elevator(spot, 2.0f, 3.0f));
+    m_messages.Push("Spawned an elevator", Color{ 200, 150, 60, 255 });
 }
 
 void Game::UpdateLevelTransition(float deltaTime)
@@ -157,6 +177,7 @@ void Game::UpdateGlobalInput()
     if (IsKeyPressed(KEY_F4)) MakeAllEnemiesHunt();
     if (IsKeyPressed(KEY_M)) m_minimap.ToggleExpanded();
     if (IsKeyPressed(KEY_F6)) SpawnBossNearPlayer();
+    if (IsKeyPressed(KEY_F7)) SpawnElevatorNearPlayer();
     if (IsKeyPressed(KEY_F5)) LoadLevel(m_seed + 1, false);
     if (!m_player.IsAlive() && IsKeyPressed(KEY_ENTER)) LoadLevel(m_seed, false);
 }
@@ -171,7 +192,7 @@ void Game::Update(float deltaTime, const PlayerInput &input)
 {
     deltaTime = std::min(deltaTime, Config::MaxFrameTime);
 
-    m_player.Update(input, m_level, deltaTime);
+    m_player.Update(input, m_level, m_solidBodies, deltaTime);
     m_level.UpdateDoors(deltaTime);
     m_interactions.Update(m_level, m_player, m_messages, input);
     m_flowField.Update(m_level, m_player.GetPosition());     // Only rebuilds when the player changes cell or a door opens

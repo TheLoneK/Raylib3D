@@ -430,6 +430,8 @@ namespace EnemySystems
                     if ((distance < minDistance) && (distance > 0.0001f)) transform.position += MathUtils::FlatDirection(player.GetPosition(), transform.position)*(minDistance - distance);
                 }
 
+                // Platforms (also the ones that moved into the enemy), then walls get the final say
+                SolidBodies::PushOut(*context.solidBodies, transform.position, collider.radius, collider.height);
                 context.level->ResolveCircle(transform.position, collider.radius);
             });
 

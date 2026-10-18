@@ -2,6 +2,8 @@
 
 #include "raylib.h"
 #include "items/PickupTypes.h"
+#include "items/SwitchTypes.h"
+#include "platforms/PlatformTypes.h"
 #include "weapons/Weapon.h"
 #include "world/Level.h"
 #include <vector>
@@ -36,6 +38,11 @@ struct LevelGenSettings
     int healthChance = 30;
     int damageBoostCount = 1;
 
+    // Moving platforms
+    int elevatorCount = 1;          // Columns that lift you up from a room corner
+    int shuttleCount = 1;           // Slabs that loop around a big room, starting at floor level
+    int switchedPlatformChance = 50;    // Percent of platforms that start stopped, with a switch to run them
+
     static LevelGenSettings Small(unsigned int seed);   // The original 40x40 arena, no doors
     static LevelGenSettings Large(unsigned int seed);   // ~3x the area, locked doors + boss
 };
@@ -43,13 +50,6 @@ struct LevelGenSettings
 struct KeySpawn
 {
     Vector3 position;
-    int link;
-};
-
-struct SwitchSpawn
-{
-    Vector3 position;               // On the wall face
-    Vector3 normal;                 // Points out of the wall, toward the player
     int link;
 };
 
@@ -67,6 +67,7 @@ struct LevelFeatures
     std::vector<KeySpawn> keys;
     std::vector<SwitchSpawn> switches;
     std::vector<PickupSpawn> pickups;
+    std::vector<PlatformSpawn> platforms;
     bool hasBoss = false;
     Vector3 bossPosition = { 0.0f, 0.0f, 0.0f };
 };

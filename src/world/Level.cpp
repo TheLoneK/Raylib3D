@@ -276,8 +276,9 @@ bool Level::ResolveCircle(Vector3 &position, float radius, Vector3 *outNormal) c
 //----------------------------------------------------------------------------------
 // Ray queries
 //----------------------------------------------------------------------------------
-RayCollision Level::Raycast(Ray ray, float maxDistance) const
+RayCollision Level::Raycast(Ray ray, float maxDistance, std::uint64_t *outBody) const
 {
+    if (outBody != nullptr) *outBody = SolidBodies::None;
     ray.direction = Vector3Normalize(ray.direction);
     Vector3 dir = ray.direction;
 
@@ -338,6 +339,18 @@ RayCollision Level::Raycast(Ray ray, float maxDistance) const
             tCurrent = tMaxZ;
             tMaxZ += tDeltaZ;
             cell.z += stepZ;
+        }
+    }
+
+    // Platforms and other solid bodies, if they are closer than any wall
+    if (m_solidBodies != nullptr)
+    {
+        std::uint64_t body = SolidBodies::None;
+        RayCollision bodyHit = SolidBodies::Raycast(*m_solidBodies, ray, result.distance, &body);
+        if (bodyHit.hit)
+        {
+            result = bodyHit;
+            if (outBody != nullptr) *outBody = body;
         }
     }
 

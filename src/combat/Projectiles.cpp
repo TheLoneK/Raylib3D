@@ -85,7 +85,8 @@ namespace Projectiles
                 if (stepLength < 0.00001f) return;
 
                 Ray ray = { transform.position, step/stepLength };
-                RayCollision wallHit = context.level->Raycast(ray, stepLength + projectile.radius);
+                std::uint64_t hitBody = SolidBodies::None;
+                RayCollision wallHit = context.level->Raycast(ray, stepLength + projectile.radius, &hitBody);
                 float travel = wallHit.hit ? wallHit.distance : stepLength;
                 Vector3 hitPoint = ray.position + ray.direction*travel;
                 bool consumed = wallHit.hit;
@@ -118,8 +119,8 @@ namespace Projectiles
 
                 if (consumed)
                 {
-                    // Arrows that hit a wall stay stuck in it for a while
-                    if ((projectile.shape == ProjectileShape::Arrow) && wallHit.hit)
+                    // Arrows that hit a wall stay stuck in it for a while (not in platforms: they would be left floating)
+                    if ((projectile.shape == ProjectileShape::Arrow) && wallHit.hit && (hitBody == SolidBodies::None))
                     {
                         world.entity().set(StuckArrow{ hitPoint, ray.direction }).set(Lifetime{ 10.0f, 10.0f });
                     }

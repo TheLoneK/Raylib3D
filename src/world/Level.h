@@ -1,6 +1,7 @@
 #pragma once
 
 #include "raylib.h"
+#include "world/SolidBody.h"
 #include <vector>
 
 //----------------------------------------------------------------------------------
@@ -94,9 +95,14 @@ public:
     // Returns true on contact, outNormal (optional) gets the push direction
     bool ResolveCircle(Vector3 &position, float radius, Vector3 *outNormal = nullptr) const;
 
-    // Ray queries against walls, doors and the floor. Ray direction does not need to be normalized
-    RayCollision Raycast(Ray ray, float maxDistance) const;
+    // Ray queries against walls, doors, the floor and the attached solid bodies (platforms).
+    // Ray direction does not need to be normalized. outBody (optional) gets the id of a body that
+    // was hit, or SolidBodies::None when static geometry (or nothing) was hit
+    RayCollision Raycast(Ray ray, float maxDistance, std::uint64_t *outBody = nullptr) const;
     bool HasLineOfSight(Vector3 from, Vector3 to) const;
+
+    // Moving geometry that ray queries also hit. Owned by the game, survives Reset
+    void SetSolidBodies(const SolidBodyList *bodies) { m_solidBodies = bodies; }
 
     void Draw() const;
 
@@ -125,4 +131,5 @@ private:
     std::vector<int> m_doorIndex;       // Per cell: index into m_doors or -1
     std::vector<LevelRoom> m_rooms;
     std::vector<Door> m_doors;
+    const SolidBodyList *m_solidBodies = nullptr;
 };

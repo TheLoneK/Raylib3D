@@ -4,6 +4,8 @@
 #include "flecs.h"
 #include "enemies/EnemyDefs.h"
 #include "items/PickupTypes.h"
+#include "items/SwitchTypes.h"
+#include "platforms/PlatformTypes.h"
 #include "weapons/Weapon.h"
 
 //----------------------------------------------------------------------------------
@@ -17,7 +19,9 @@
 //   crystal    = enemy components (minus EnemyBrain) + LichCrystal + Anchored
 //   pickup     = WorldTransform + Pickup
 //   switch     = WorldTransform + WallSwitch
+//   receiver   = TriggerTarget + whatever reacts to it (DoorOpener, a platform's PathFollower...)
 //   hazard     = WorldTransform + DamageZone + Lifetime
+//   platform   = WorldTransform + Velocity + SolidBox + PathFollower + Platform (+ TriggerTarget when a switch runs it)
 //----------------------------------------------------------------------------------
 
 // Shared
@@ -183,11 +187,58 @@ struct Pickup
     float bobPhase;
 };
 
-struct WallSwitch
+struct WallSwitch               // Using it sends a Triggered event on its channel (see Triggers::Send)
 {
-    int link;                   // Opens every door with the same link tag
+    int channel;
     Vector3 normal;             // Facing out of the wall
-    bool activated;
+    SwitchMode mode;
+    bool activated;             // Lever down
+    Color color;
+    const char *name;           // Shown in the prompt: "[E] Use <name> switch" (static string)
+};
+
+// Triggers: Triggers::Send(channel) emits a Triggered event to every entity with a TriggerTarget
+// on that channel. Each feature decides what its entities do with it (an observer on its own
+// components), so anything can be wired to a switch by giving it a TriggerTarget.
+struct TriggerTarget
+{
+    int channel;
+};
+
+struct Triggered                // Event payload, never stored on an entity
+{
+    int channel;
+    flecs::entity_t source;     // The switch (or whatever sent it)
+    bool on;                    // Toggle switches: lever down = on. One-shot sources always send true
+};
+
+struct DoorOpener               // Receiver: opens every level door with this link tag
+{
+    int link;
+};
+
+// Platforms: SolidBox makes an entity something the player collides with and stands on,
+// PathFollower moves it through stops. Together they make elevators and moving platforms
+struct SolidBox                 // Axis aligned; WorldTransform.position is the center of its top face
+{
+    Vector3 size;
+};
+
+struct PathFollower
+{
+    PathPoint points[MaxPathPoints];
+    int count;
+    PathMode mode;
+    float speed;                // Units per second
+    int target;                 // Stop it is heading to
+    int step;                   // +1 / -1 (PingPong direction)
+    float waitTimer;            // > 0 while paused at a stop
+    bool running;               // Stopped platforms hold still (a switch can toggle this)
+};
+
+struct Platform
+{
+    Color color;
 };
 
 // Effects

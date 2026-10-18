@@ -10,6 +10,7 @@
 #include "raymath.h"
 #include <algorithm>
 #include <iterator>
+#include <string>
 
 namespace
 {
@@ -46,18 +47,27 @@ void Hud::Init(flecs::world &world)
         .with<Enemy>()
         .without<Dead>()
         .build();
+
+    m_crystals = world.query_builder()
+        .with<LichCrystal>()
+        .without<Dead>()
+        .build();
 }
 
 void Hud::Update(float deltaTime)
 {
     m_hitMarkerTimer = std::max(0.0f, m_hitMarkerTimer - deltaTime);
     m_killMarkerTimer = std::max(0.0f, m_killMarkerTimer - deltaTime);
+    m_headshotTimer = std::max(0.0f, m_headshotTimer - deltaTime);
+    m_immuneTimer = std::max(0.0f, m_immuneTimer - deltaTime);
 }
 
 void Hud::RegisterHits(const CombatStats &stats)
 {
     if (stats.hits > 0) m_hitMarkerTimer = 0.15f;
     if (stats.kills > 0) m_killMarkerTimer = 0.4f;
+    if (stats.headshots > 0) m_headshotTimer = 0.35f;
+    if (stats.immuneHits > 0) m_immuneTimer = 0.3f;
 }
 
 //----------------------------------------------------------------------------------
@@ -79,13 +89,28 @@ void Hud::DrawViewModel(const Player &player) const
     float walk = player.IsGrounded() ? Clamp(player.GetHorizontalSpeed()/20.0f, 0.0f, 1.0f) : 0.0f;
     float time = static_cast<float>(GetTime());
 
+    // Aiming steadies the bob and pulls the gun to the middle of the screen
+    float aim = player.GetAimAmount();
+    float aimEased = aim*aim*(3.0f - 2.0f*aim);
+    float sway = 1.0f - aimEased*0.85f;
     Vector2 offset = Vector2{
-        sinf(time*8.0f)*10.0f*walk + weapon->GetRecoil()*6.0f,
-        lower*screenHeight*0.45f + reloadDip*screenHeight*0.22f + fabsf(cosf(time*8.0f))*8.0f*walk + weapon->GetRecoil()*18.0f,
+        (sinf(time*8.0f)*10.0f*walk)*sway + weapon->GetRecoil()*6.0f,
+        lower*screenHeight*0.45f + reloadDip*screenHeight*0.22f + (fabsf(cosf(time*8.0f))*8.0f*walk)*sway + weapon->GetRecoil()*18.0f,
     };
 
-    Vector2 base = Vector2{ screenWidth*0.70f, screenHeight + 20.0f } + offset;
-    Vector2 tip = Vector2{ screenWidth*0.60f, screenHeight*(1.0f - def.viewLength) } + offset;
+    if (def.fireMode == FireMode::Charge)
+    {
+        DrawBow(player, *weapon, offset);
+        return;
+    }
+
+    Vector2 center = Vector2{ screenWidth*0.5f, screenHeight*0.5f };
+    Vector2 hipBase = Vector2{ screenWidth*0.70f, screenHeight + 20.0f };
+    Vector2 hipTip = Vector2{ screenWidth*0.60f, screenHeight*(1.0f - def.viewLength) };
+    Vector2 aimBase = Vector2{ center.x, screenHeight + 80.0f };
+    Vector2 aimTip = Vector2{ center.x, center.y + 16.0f };     // Front sight post reaches the screen center
+    Vector2 base = Vector2Lerp(hipBase, aimBase, aimEased) + offset;
+    Vector2 tip = Vector2Lerp(hipTip, aimTip, aimEased) + offset;
 
     if (def.shotKind == ShotKind::Melee)
     {
@@ -120,12 +145,78 @@ void Hud::DrawViewModel(const Player &player) const
     DrawCircleV(hand - direction*60.0f, baseHalf*0.85f, Color{ 60, 70, 60, 255 });     // Sleeve
     DrawCircleV(hand, baseHalf*0.6f, Color{ 205, 160, 130, 255 });
 
+    if (aimEased > 0.3f) DrawIronSights(player, tip);
+
     if (weapon->GetMuzzleFlash() > 0.0f)
     {
         float flash = weapon->GetMuzzleFlash()/Weapon::MuzzleFlashTime;
         DrawCircleV(tip, 30.0f*flash + 12.0f, Fade(Color{ 255, 200, 80, 255 }, 0.8f));
         DrawCircleV(tip, 12.0f*flash + 4.0f, Color{ 255, 250, 220, 255 });
     }
+}
+
+void Hud::DrawIronSights(const Player &player, Vector2 tip) const
+{
+    // Front post on the muzzle, rear notch closer to the eye; lined up they frame the screen center
+    float alpha = Clamp((player.GetAimAmount() - 0.3f)/0.5f, 0.0f, 1.0f);
+    Color sight = Fade(Color{ 20, 20, 24, 255 }, alpha);
+    Color dot = Fade(Color{ 255, 120, 60, 255 }, alpha);
+
+    DrawRectangleV(Vector2{ tip.x - 3.0f, tip.y - 16.0f }, Vector2{ 6.0f, 16.0f }, sight);
+    DrawCircleV(Vector2{ tip.x, tip.y - 14.0f }, 2.0f, dot);
+
+    float rearY = tip.y + 60.0f;
+    DrawRectangleV(Vector2{ tip.x - 40.0f, rearY - 14.0f }, Vector2{ 28.0f, 30.0f }, sight);
+    DrawRectangleV(Vector2{ tip.x + 12.0f, rearY - 14.0f }, Vector2{ 28.0f, 30.0f }, sight);
+    DrawRectangleV(Vector2{ tip.x - 40.0f, rearY + 10.0f }, Vector2{ 80.0f, 10.0f }, sight);
+}
+
+void Hud::DrawBow(const Player &player, const Weapon &weapon, Vector2 offset) const
+{
+    float screenWidth = static_cast<float>(GetScreenWidth());
+    float screenHeight = static_cast<float>(GetScreenHeight());
+    float aim = player.GetAimAmount();
+    float draw = weapon.GetDrawAmount();
+    float time = static_cast<float>(GetTime());
+    const WeaponDef &def = weapon.GetDef();
+    Color wood = def.color;
+    Color woodDark = Render::Shade(wood, 0.6f);
+
+    // Held upright left of center; aiming brings the arrow onto the crosshair
+    Vector2 grip = Vector2Lerp(Vector2{ screenWidth*0.5f - 150.0f, screenHeight*0.5f + 120.0f }, Vector2{ screenWidth*0.5f - 40.0f, screenHeight*0.5f + 20.0f }, aim) + offset;
+    float shake = (draw >= 1.0f) ? sinf(time*60.0f)*1.5f : 0.0f;    // Strain at full draw
+    grip.x += shake;
+
+    Vector2 top = grip + Vector2{ 50.0f, -270.0f };
+    Vector2 bottom = grip + Vector2{ 50.0f, 270.0f };
+    DrawSplineSegmentBezierQuadratic(grip, grip + Vector2{ -70.0f, -150.0f }, top, 12.0f, wood);
+    DrawSplineSegmentBezierQuadratic(grip, grip + Vector2{ -70.0f, 150.0f }, bottom, 12.0f, wood);
+    DrawRectangleV(grip - Vector2{ 9.0f, 30.0f }, Vector2{ 18.0f, 60.0f }, woodDark);     // Grip wrap
+
+    // String pulled back toward the eye with the draw
+    Vector2 rest = grip + Vector2{ 60.0f, 0.0f };
+    Vector2 pulled = Vector2Lerp(grip + Vector2{ 240.0f, 160.0f }, grip + Vector2{ 200.0f, 230.0f }, aim);
+    Vector2 nock = Vector2Lerp(rest, pulled, draw);
+    DrawLineEx(top, nock, 2.0f, Color{ 230, 230, 220, 255 });
+    DrawLineEx(bottom, nock, 2.0f, Color{ 230, 230, 220, 255 });
+
+    // Arrow (hidden while a new one is being nocked)
+    bool arrowReady = !weapon.IsReloading() || (weapon.GetReloadProgress() > 0.6f);
+    if (arrowReady && (weapon.GetAmmoInMagazine() > 0))
+    {
+        Vector2 arrowTip = grip + Vector2{ -14.0f, -6.0f };
+        Vector2 direction = Vector2Normalize(arrowTip - nock);
+        Vector2 side = Vector2{ -direction.y, direction.x };
+        DrawLineEx(nock, arrowTip, 5.0f, Color{ 150, 110, 70, 255 });
+        Color head = (draw >= 1.0f) ? WHITE : Color{ 170, 170, 180, 255 };
+        Render::DrawTriangle2D(arrowTip + direction*16.0f, arrowTip + side*7.0f, arrowTip - side*7.0f, head);
+        Render::DrawTriangle2D(nock + direction*26.0f + side*9.0f, nock + direction*2.0f, nock + direction*26.0f - side*9.0f, Color{ 220, 60, 50, 255 });
+        if (draw >= 1.0f) DrawCircleV(arrowTip + direction*10.0f, 10.0f + 3.0f*sinf(time*12.0f), Fade(WHITE, 0.35f));
+    }
+
+    // Hands: one on the grip, one on the string
+    DrawCircleV(grip + Vector2{ 6.0f, 18.0f }, 22.0f, Color{ 205, 160, 130, 255 });
+    DrawCircleV(nock + Vector2{ 14.0f, 10.0f }, 24.0f, Color{ 205, 160, 130, 255 });
 }
 
 void Hud::DrawChainsaw(const Player &player, const WeaponDef &def, Vector2 base, Vector2 tip) const
@@ -179,23 +270,40 @@ void Hud::DrawCrosshair(const Player &player) const
     const Weapon *weapon = player.GetInventory().GetActiveWeapon();
     float spread = (weapon != nullptr) ? weapon->GetDef().spreadDegrees : 0.0f;
     float recoil = (weapon != nullptr) ? weapon->GetRecoil() : 0.0f;
-    float gap = 5.0f + spread*2.0f + recoil*8.0f;
+    float gap = 5.0f + spread*2.0f*player.GetSpreadScale() + recoil*8.0f;
     float length = 7.0f;
 
-    DrawLineEx(Vector2{ center.x - gap - length, center.y }, Vector2{ center.x - gap, center.y }, 2.0f, HudText);
-    DrawLineEx(Vector2{ center.x + gap, center.y }, Vector2{ center.x + gap + length, center.y }, 2.0f, HudText);
-    DrawLineEx(Vector2{ center.x, center.y - gap - length }, Vector2{ center.x, center.y - gap }, 2.0f, HudText);
-    DrawLineEx(Vector2{ center.x, center.y + gap }, Vector2{ center.x, center.y + gap + length }, 2.0f, HudText);
-    DrawCircleV(center, 1.5f, HudText);
+    // The sights take over while aiming
+    Color lines = Fade(HudText, 1.0f - Clamp(player.GetAimAmount()*1.5f, 0.0f, 1.0f));
+    DrawLineEx(Vector2{ center.x - gap - length, center.y }, Vector2{ center.x - gap, center.y }, 2.0f, lines);
+    DrawLineEx(Vector2{ center.x + gap, center.y }, Vector2{ center.x + gap + length, center.y }, 2.0f, lines);
+    DrawLineEx(Vector2{ center.x, center.y - gap - length }, Vector2{ center.x, center.y - gap }, 2.0f, lines);
+    DrawLineEx(Vector2{ center.x, center.y + gap }, Vector2{ center.x, center.y + gap + length }, 2.0f, lines);
+    DrawCircleV(center, 1.5f, lines);
+
+    // Bow draw: red until it can fire, yellow while charging, white at full power
+    if ((weapon != nullptr) && weapon->IsCharging())
+    {
+        const WeaponDef &def = weapon->GetDef();
+        float drawn = weapon->GetDrawAmount();
+        bool canFire = drawn*def.fullChargeTime >= def.minChargeTime;
+        Color ring = (drawn >= 1.0f) ? WHITE : (canFire ? HudAccent : RED);
+        DrawRing(center, 16.0f, 19.0f, -90.0f, -90.0f + 360.0f*drawn, 32, ring);
+        float minAngle = -90.0f + 360.0f*(def.minChargeTime/def.fullChargeTime);
+        DrawRing(center, 14.0f, 21.0f, minAngle - 1.5f, minAngle + 1.5f, 2, Fade(WHITE, 0.6f));
+    }
 
     if ((m_hitMarkerTimer > 0.0f) || (m_killMarkerTimer > 0.0f))
     {
-        Color color = (m_killMarkerTimer > 0.0f) ? RED : WHITE;
+        Color color = (m_killMarkerTimer > 0.0f) ? RED : ((m_headshotTimer > 0.0f) ? HudAccent : WHITE);
+        float size = (m_headshotTimer > 0.0f) ? 17.0f : 13.0f;
         for (Vector2 corner : { Vector2{ -1.0f, -1.0f }, Vector2{ 1.0f, -1.0f }, Vector2{ -1.0f, 1.0f }, Vector2{ 1.0f, 1.0f } })
         {
-            DrawLineEx(center + corner*6.0f, center + corner*13.0f, 2.0f, color);
+            DrawLineEx(center + corner*6.0f, center + corner*size, (m_headshotTimer > 0.0f) ? 3.0f : 2.0f, color);
         }
     }
+    if (m_headshotTimer > 0.0f) DrawTextCentered("HEADSHOT", static_cast<int>(center.x), static_cast<int>(center.y) - 40, 10, HudAccent);
+    if (m_immuneTimer > 0.0f) DrawTextCentered("IMMUNE", static_cast<int>(center.x), static_cast<int>(center.y) + 24, 10, Color{ 90, 230, 255, 255 });
 }
 
 //----------------------------------------------------------------------------------
@@ -325,15 +433,16 @@ void Hud::DrawHelp(const FrameInfo &frame) const
         "WASD move, SPACE jump, CTRL crouch",
         "Mouse look, LMB fire, R reload",
         "1-7 / wheel switch weapon, Q last weapon",
-        "E use switch, M map",
+        "RMB aim down sights, E use switch, M map",
         "F2 god mode, F3 spawn wave, F4 all enemies hunt",
+        "F6 spawn a random boss",
         "F5 new level, F1 hide help",
     };
     int lineCount = static_cast<int>(std::size(lines));
 
     DrawRectangle(5, 5, 320, 20 + lineCount*15 + 18, HudPanel);
     for (int i = 0; i < lineCount; i++) DrawText(lines[i], 12, 12 + i*15, 10, HudText);
-    DrawText(TextFormat("Seed %u  |  Enemies %d  |  %d FPS", frame.seed, m_livingEnemies.count(), GetFPS()), 12, 12 + lineCount*15 + 4, 10, HudAccent);
+    DrawText(TextFormat("Level %d  |  Seed %u  |  Enemies %d  |  %d FPS", frame.levelNumber, frame.seed, m_livingEnemies.count(), GetFPS()), 12, 12 + lineCount*15 + 4, 10, HudAccent);
 }
 
 void Hud::DrawStatusEffects(const Player &player) const
@@ -385,21 +494,45 @@ void Hud::DrawMessages(const FrameInfo &frame) const
 
 void Hud::DrawBossBar() const
 {
+    int y = 24;
+
+    // One bar per engaged boss, stacked
     m_bosses.each([&](flecs::entity entity) {
         if (!entity.get<Boss>().engaged) return;
 
         const Health &health = entity.get<Health>();
-        const char *name = GetEnemyDef(entity.get<Enemy>().type).name;
+        bool immune = entity.has<Invulnerable>();
+        std::string name = GetEnemyDef(entity.get<Enemy>().type).name;
+        if (immune)
+        {
+            int crystals = 0;
+            m_crystals.each([&](flecs::entity crystal) { if (crystal.get<LichCrystal>().owner == entity.id()) crystals++; });
+            name += TextFormat("  -  IMMUNE: destroy %d crystal%s", crystals, (crystals == 1) ? "" : "s");
+        }
+
         int width = 500;
         int x = (GetScreenWidth() - width)/2;
-        int y = 24;
         float fraction = Clamp(health.current/health.max, 0.0f, 1.0f);
+        Color fill = immune ? Color{ 90, 230, 255, 255 } : Color{ 170, 70, 255, 255 };
 
-        DrawTextCentered(name, GetScreenWidth()/2, y - 18, 20, Color{ 230, 220, 200, 255 });
+        DrawTextCentered(name.c_str(), GetScreenWidth()/2, y - 18, 20, Color{ 230, 220, 200, 255 });
         DrawRectangle(x - 2, y - 2, width + 4, 18, Fade(BLACK, 0.7f));
-        DrawRectangle(x, y, static_cast<int>(static_cast<float>(width)*fraction), 14, Color{ 170, 70, 255, 255 });
+        DrawRectangle(x, y, static_cast<int>(static_cast<float>(width)*fraction), 14, fill);
         DrawRectangleLines(x - 2, y - 2, width + 4, 18, Color{ 230, 220, 200, 255 });
+        y += 44;
     });
+}
+
+void Hud::DrawLevelTransition(float timeLeft) const
+{
+    int centerX = GetScreenWidth()/2;
+    int y = GetScreenHeight()/4;
+    const char *title = "BOSS DEFEATED";
+    const char *countdown = TextFormat("Moving to the next level in %d", static_cast<int>(ceilf(timeLeft)));
+
+    DrawRectangle(centerX - 260, y - 14, 520, 80, Fade(BLACK, 0.55f));
+    DrawTextCentered(title, centerX, y, 30, Color{ 255, 220, 120, 255 });
+    DrawTextCentered(countdown, centerX, y + 38, 20, RAYWHITE);
 }
 
 void Hud::DrawDeathScreen() const
@@ -428,6 +561,7 @@ void Hud::Draw(const FrameInfo &frame) const
     DrawInventoryBar(player);
     DrawMessages(frame);
     DrawBossBar();
+    if (frame.levelTransitionTime >= 0.0f) DrawLevelTransition(frame.levelTransitionTime);
     frame.minimap.Draw(frame.level, player);
     DrawHelp(frame);
 

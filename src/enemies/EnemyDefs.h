@@ -11,7 +11,9 @@ enum class EnemyType
 {
     Brute = 0,      // Melee
     Gunner,         // Ranged
-    SkullBoss,      // Boss: has its own systems (Boss.cpp) instead of EnemyBrain
+    SkullLord,      // Boss (src/bosses): own systems instead of EnemyBrain
+    Lich,           // Boss
+    LichCrystal,    // Shield crystal summoned by the Lich
     Count
 };
 
@@ -42,6 +44,8 @@ struct EnemyDef
     float projectileSpeed = 0.0f;
     float projectileRadius = 0.0f;
     float aimSpreadDegrees = 0.0f;
+    float headHeightFraction = 0.0f;    // Hits above this fraction of the height are headshots (0 = no head)
+    bool dropsLoot = true;              // Random ammo/health drop on death
     Color color = { 255, 255, 255, 255 };
 };
 

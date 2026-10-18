@@ -16,13 +16,15 @@ enum class WeaponType
     Rifle,
     Plasma,
     Chainsaw,
+    Bow,
     Count
 };
 
 enum class FireMode
 {
     Semi,       // One shot per click
-    Auto        // Fires while held
+    Auto,       // Fires while held
+    Charge      // Hold to draw, release to fire (bow)
 };
 
 enum class ShotKind
@@ -49,9 +51,15 @@ struct WeaponDef
     int ammoPickupAmount = 0;           // Reserve ammo an ammo pickup adds
     float reloadTime = 0.0f;
     float switchTime = 0.0f;            // Time to lower the previous weapon and raise this one
-    float projectileSpeed = 0.0f;       // ShotKind::Projectile only
+    float projectileSpeed = 0.0f;       // ShotKind::Projectile only (Charge: speed at full charge)
     float projectileRadius = 0.0f;
     float noiseRadius = 0.0f;           // Enemies inside this radius hear the shot
+    float minChargeTime = 0.0f;         // Charge: hold at least this long before a release fires
+    float fullChargeTime = 0.0f;        // Charge: time held for a full-power shot
+    float minChargeScale = 1.0f;        // Charge: damage/speed fraction of a barely-drawn shot
+    float arcGravity = 0.0f;            // Charge: drop applied to shots that are not fully charged
+    float headshotMultiplier = 2.0f;    // Damage multiplier on enemy heads
+    float aimFov = 0.0f;                // Field of view while aiming down sights (0 = cannot aim)
     Color color = { 0, 0, 0, 0 };       // Viewmodel / tracer color
     float viewLength = 0.0f;            // Viewmodel length (fraction of screen height)
     float viewWidth = 0.0f;             // Viewmodel half width in pixels at the base
@@ -66,9 +74,11 @@ public:
     explicit Weapon(WeaponType type);       // Full magazine and the starting reserve
 
     void Update(float deltaTime);           // Timers, recoil, reload completion
-    bool TryFire(bool triggerPressed, bool triggerHeld);    // True when a shot happened (ammo consumed)
+    // True when a shot happened (ammo consumed). Charge weapons fire on release
+    bool TryFire(bool triggerPressed, bool triggerHeld, float deltaTime);
     bool StartReload();
     void CancelReload() { m_reloadTimer = 0.0f; }
+    void CancelCharge() { m_chargeTime = 0.0f; }
     int AddAmmo(int amount);                // For pickups; returns ammo actually added
 
     WeaponType GetType() const { return m_type; }
@@ -81,6 +91,9 @@ public:
     int GetAmmoInMagazine() const { return m_ammoInMagazine; }
     int GetReserveAmmo() const { return m_reserveAmmo; }
     float GetRecoil() const { return m_recoil; }
+    bool IsCharging() const { return m_chargeTime > 0.0f; }
+    float GetDrawAmount() const;            // Charge: 0..1 of the full draw, for the viewmodel/HUD
+    float GetLastShotCharge() const { return m_lastShotCharge; }    // Charge: 0 = minimum, 1 = full power
     float GetMuzzleFlash() const { return m_muzzleFlash; }
 
     static constexpr float MuzzleFlashTime = 0.05f;
@@ -95,4 +108,6 @@ private:
     float m_reloadTimer = 0.0f;     // > 0 while reloading
     float m_recoil = 0.0f;          // 0..1 visual kick, decays over time
     float m_muzzleFlash = 0.0f;     // > 0 while the flash is visible
+    float m_chargeTime = 0.0f;      // Charge: how long the trigger has been held
+    float m_lastShotCharge = 0.0f;
 };

@@ -69,27 +69,30 @@ namespace Enemies
     {
         bool isBoss = enemy.has<Boss>();
         float corpseTime = isBoss ? BossCorpseLifetime : CorpseLifetime;
+        const EnemyDef &def = GetEnemyDef(enemy.get<Enemy>().type);
         enemy.add<Dead>();
         enemy.set(Lifetime{ corpseTime, corpseTime });
 
         flecs::world world = enemy.world();
         const WorldTransform &transform = enemy.get<WorldTransform>();
-        Pickups::SpawnEnemyDrop(world, transform.position, isBoss);
+        if (def.dropsLoot) Pickups::SpawnEnemyDrop(world, Vector3{ transform.position.x, 0.0f, transform.position.z }, isBoss);
 
         if (isBoss)
         {
             const GameContext &context = world.get<GameContext>();
-            context.messages->Push(std::string(GetEnemyDef(enemy.get<Enemy>().type).name) + " defeated!", Color{ 255, 220, 120, 255 }, 5.0f);
+            context.messages->Push(std::string(def.name) + " defeated!", Color{ 255, 220, 120, 255 }, 5.0f);
+            context.events->bossKilled = true;
         }
     }
 
-    bool ApplyDamage(flecs::entity enemy, float amount)
+    DamageResult ApplyDamage(flecs::entity enemy, float amount)
     {
-        if (!enemy.is_alive() || enemy.has<Dead>()) return false;
+        if (!enemy.is_alive() || enemy.has<Dead>()) return DamageResult::None;
 
         // Health can already be 0 while the Dead tag is still queued (deferred inside a system)
         Health *health = enemy.try_get_mut<Health>();
-        if ((health == nullptr) || (health->current <= 0.0f)) return false;
+        if ((health == nullptr) || (health->current <= 0.0f)) return DamageResult::None;
+        if (enemy.has<Invulnerable>()) return DamageResult::Immune;
 
         health->current -= amount;
         if (EnemyVisual *visual = enemy.try_get_mut<EnemyVisual>()) visual->hitFlash = 1.0f;
@@ -98,14 +101,39 @@ namespace Enemies
         {
             health->current = 0.0f;
             OnKilled(enemy);
-            return true;
+            return DamageResult::Killed;
         }
 
         EnemyBrain *brain = enemy.try_get_mut<EnemyBrain>();
         const Enemy *info = enemy.try_get<Enemy>();
         const WorldTransform *transform = enemy.try_get<WorldTransform>();
         if ((brain != nullptr) && (info != nullptr) && (transform != nullptr)) Alert(*brain, GetEnemyDef(info->type), transform->position);
-        return false;
+        return DamageResult::Damaged;
+    }
+
+    void RecordHit(CombatStats &stats, DamageResult result, bool headshot)
+    {
+        switch (result)
+        {
+            case DamageResult::None: return;
+            case DamageResult::Immune: stats.immuneHits++; return;
+            case DamageResult::Killed: stats.kills++; break;
+            case DamageResult::Damaged: break;
+        }
+        stats.hits++;
+        if (headshot) stats.headshots++;
+    }
+
+    bool IsHeadshot(flecs::entity enemy, Vector3 hitPoint)
+    {
+        const WorldTransform *transform = enemy.try_get<WorldTransform>();
+        const Collider *collider = enemy.try_get<Collider>();
+        const Enemy *info = enemy.try_get<Enemy>();
+        if ((transform == nullptr) || (collider == nullptr) || (info == nullptr)) return false;
+
+        float fraction = GetEnemyDef(info->type).headHeightFraction;
+        if (fraction <= 0.0f) return false;
+        return hitPoint.y >= transform->position.y + collider->height*fraction;
     }
 
     void AlertNoise(flecs::world &world, const SpatialGrid &grid, Vector3 noisePosition, float radius)

@@ -7,6 +7,7 @@
 #include "world/LinkTags.h"
 #include "raymath.h"
 #include <cmath>
+#include <iterator>
 #include <string>
 
 namespace
@@ -130,8 +131,8 @@ namespace Pickups
 
     void SpawnEnemyDrop(flecs::world &world, Vector3 position, bool isBoss)
     {
-        constexpr WeaponType ammoTypes[] = { WeaponType::Pistol, WeaponType::Shotgun, WeaponType::Rifle, WeaponType::Plasma };
-        auto randomAmmo = [&]() { return ammoTypes[GetRandomValue(0, 3)]; };
+        constexpr WeaponType ammoTypes[] = { WeaponType::Pistol, WeaponType::Shotgun, WeaponType::Rifle, WeaponType::Plasma, WeaponType::Bow };
+        auto randomAmmo = [&]() { return ammoTypes[GetRandomValue(0, static_cast<int>(std::size(ammoTypes)) - 1)]; };
 
         if (isBoss)
         {

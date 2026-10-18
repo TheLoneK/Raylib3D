@@ -14,6 +14,7 @@ struct PlayerInput
     bool crouchHeld = false;
     bool firePressed = false;
     bool fireHeld = false;
+    bool aimHeld = false;           // Aim down sights
     bool reloadPressed = false;
     bool lastWeaponPressed = false;
     bool interactPressed = false;   // Use switches

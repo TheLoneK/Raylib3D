@@ -15,6 +15,13 @@ struct CombatStats             // Reset every frame, read by the HUD (hit marker
 {
     int hits;
     int kills;
+    int headshots;
+    int immuneHits;             // Hits on an invulnerable target
+};
+
+struct GameEvents              // Things systems report back to the game (read and cleared by Game)
+{
+    bool bossKilled;
 };
 
 struct GameContext
@@ -26,4 +33,5 @@ struct GameContext
     const RenderAssets *assets;
     CombatStats *combatStats;
     MessageFeed *messages;
+    GameEvents *events;
 };

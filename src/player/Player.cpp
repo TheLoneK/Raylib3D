@@ -1,4 +1,5 @@
 #include "player/Player.h"
+#include "core/Config.h"
 #include "core/MathUtils.h"
 #include "raymath.h"
 #include <algorithm>
@@ -22,6 +23,9 @@ namespace
     constexpr float HeadClearance = 0.2f;
 
     constexpr float MouseSensitivity = 0.001f;
+    constexpr float AimSpeed = 6.0f;            // Aim transitions per second
+    constexpr float AimMoveScale = 0.5f;        // Movement speed while fully aimed
+    constexpr float AimSpreadScale = 0.3f;      // Weapon spread while fully aimed
     constexpr float PitchLimit = PI*0.5f - 0.01f;
 
     Vector3 DirectionFromAngles(float yaw, float pitch)
@@ -48,9 +52,10 @@ void Player::Update(const PlayerInput &input, const Level &level, float deltaTim
 
     m_damageBoostTimer = std::max(0.0f, m_damageBoostTimer - deltaTime);
 
-    // Look
-    m_yaw -= input.lookDelta.x*MouseSensitivity;
-    m_pitch = Clamp(m_pitch - input.lookDelta.y*MouseSensitivity, -PitchLimit, PitchLimit);
+    // Look (slower while zoomed so the crosshair moves the same amount on screen)
+    float sensitivity = MouseSensitivity*(GetFov()/Config::CameraFov);
+    m_yaw -= input.lookDelta.x*sensitivity;
+    m_pitch = Clamp(m_pitch - input.lookDelta.y*sensitivity, -PitchLimit, PitchLimit);
 
     UpdateMovement(input, level, deltaTime);
 
@@ -62,6 +67,38 @@ void Player::Update(const PlayerInput &input, const Level &level, float deltaTim
 
     UpdateInventoryInput(input);
     m_inventory.Update(deltaTime);
+    UpdateAim(input, deltaTime);
+}
+
+void Player::UpdateAim(const PlayerInput &input, float deltaTime)
+{
+    const Weapon *weapon = m_inventory.GetActiveWeapon();
+    bool canAim = (weapon != nullptr) && (weapon->GetDef().aimFov > 0.0f) && !weapon->IsReloading() && !m_inventory.IsSwitching();
+    float target = (input.aimHeld && canAim) ? 1.0f : 0.0f;
+    float step = AimSpeed*deltaTime;
+    m_aimAmount = (m_aimAmount < target) ? std::min(target, m_aimAmount + step) : std::max(target, m_aimAmount - step);
+}
+
+float Player::GetFov() const
+{
+    const Weapon *weapon = m_inventory.GetActiveWeapon();
+    if ((weapon == nullptr) || (weapon->GetDef().aimFov <= 0.0f)) return Config::CameraFov;
+
+    float eased = m_aimAmount*m_aimAmount*(3.0f - 2.0f*m_aimAmount);    // Smoothstep
+    return Lerp(Config::CameraFov, weapon->GetDef().aimFov, eased);
+}
+
+float Player::GetSpreadScale() const
+{
+    return Lerp(1.0f, AimSpreadScale, m_aimAmount);
+}
+
+void Player::CarryOverFrom(const Player &previous)
+{
+    m_inventory = previous.m_inventory;
+    m_inventory.SetActiveSlot(previous.m_inventory.GetSelectedSlot());
+    m_health = std::max(previous.m_health, MaxHealth*0.5f);     // Start the next level with at least half health
+    m_godMode = previous.m_godMode;
 }
 
 //----------------------------------------------------------------------------------
@@ -92,7 +129,7 @@ void Player::UpdateMovement(const PlayerInput &input, const Level &level, float 
 
     // Clamping the added speed (not the total) is what allows air strafing
     float speed = Vector3DotProduct(hvel, m_moveDirection);
-    float maxSpeed = input.crouchHeld ? CrouchSpeed : MaxSpeed;
+    float maxSpeed = (input.crouchHeld ? CrouchSpeed : MaxSpeed)*Lerp(1.0f, AimMoveScale, m_aimAmount);
     float accel = Clamp(maxSpeed - speed, 0.0f, MaxAccel*deltaTime);
     hvel += m_moveDirection*accel;
 
@@ -138,6 +175,7 @@ void Player::UpdateCamera(Camera3D &camera) const
 
     camera.position = eye;
     camera.target = eye + forward;
+    camera.fovy = GetFov();
     camera.up = Vector3RotateByAxisAngle(Vector3{ 0.0f, 1.0f, 0.0f }, forward, m_lean.x);
 }
 

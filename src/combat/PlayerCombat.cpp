@@ -1,6 +1,7 @@
 #include "combat/PlayerCombat.h"
 #include "combat/Effects.h"
 #include "combat/Projectiles.h"
+#include "core/Config.h"
 #include "core/MathUtils.h"
 #include "enemies/Enemies.h"
 #include "player/Player.h"
@@ -35,13 +36,18 @@ void PlayerCombat::Init(flecs::world &world)
         .build();
 }
 
-void PlayerCombat::Update(flecs::world &world, const GameContext &context, const PlayerInput &input)
+float PlayerCombat::GetPlayerDamage(const WeaponDef &def, const GameContext &context)
+{
+    return def.damage*Config::PlayerWeaponDamageScale*context.player->GetDamageMultiplier();
+}
+
+void PlayerCombat::Update(flecs::world &world, const GameContext &context, const PlayerInput &input, float deltaTime)
 {
     Player &player = *context.player;
     if (!player.IsAlive() || player.GetInventory().IsSwitching()) return;
 
     Weapon *weapon = player.GetInventory().GetActiveWeapon();
-    if ((weapon == nullptr) || !weapon->TryFire(input.firePressed, input.fireHeld)) return;
+    if ((weapon == nullptr) || !weapon->TryFire(input.firePressed, input.fireHeld, deltaTime)) return;
 
     const WeaponDef &def = weapon->GetDef();
     Vector3 eye = player.GetEyePosition();
@@ -56,12 +62,13 @@ void PlayerCombat::Update(flecs::world &world, const GameContext &context, const
 
     for (int pellet = 0; pellet < def.pelletsPerShot; pellet++)
     {
-        Vector3 direction = MathUtils::RandomConeDirection(forward, def.spreadDegrees);
+        Vector3 direction = MathUtils::RandomConeDirection(forward, def.spreadDegrees*player.GetSpreadScale());
+        float charge = (def.fireMode == FireMode::Charge) ? weapon->GetLastShotCharge() : 1.0f;
 
         switch (def.shotKind)
         {
             case ShotKind::Hitscan: FireHitscan(world, context, eye, direction); break;
-            case ShotKind::Projectile: FireProjectile(world, context, eye, direction); break;
+            case ShotKind::Projectile: FireProjectile(world, context, eye, direction, charge); break;
             case ShotKind::Melee: break;
         }
     }
@@ -91,9 +98,11 @@ void PlayerCombat::FireHitscan(flecs::world &world, const GameContext &context, 
 
     if (target)
     {
-        context.combatStats->hits++;
-        if (Enemies::ApplyDamage(target, def.damage*context.player->GetDamageMultiplier())) context.combatStats->kills++;
-        Effects::SpawnImpact(world, end, 0.12f, BloodColor);
+        bool headshot = Enemies::IsHeadshot(target, end);
+        float damage = GetPlayerDamage(def, context)*(headshot ? def.headshotMultiplier : 1.0f);
+        DamageResult result = Enemies::ApplyDamage(target, damage);
+        Enemies::RecordHit(*context.combatStats, result, headshot);
+        Effects::SpawnImpact(world, end, headshot ? 0.2f : 0.12f, (result == DamageResult::Immune) ? SparkColor : BloodColor);
     }
     else if (wallHit.hit)
     {
@@ -103,14 +112,27 @@ void PlayerCombat::FireHitscan(flecs::world &world, const GameContext &context, 
     Effects::SpawnTracer(world, GetViewmodelMuzzle(*context.player), end, ColorLerp(def.color, SparkColor, 0.6f));
 }
 
-void PlayerCombat::FireProjectile(flecs::world &world, const GameContext &context, Vector3 origin, Vector3 direction)
+void PlayerCombat::FireProjectile(flecs::world &world, const GameContext &context, Vector3 origin, Vector3 direction, float charge)
 {
     const WeaponDef &def = context.player->GetInventory().GetActiveWeapon()->GetDef();
+    bool charged = (def.fireMode == FireMode::Charge);
+
+    // Charged shots scale speed and damage with the draw; only a full draw flies perfectly straight
+    float power = charged ? Lerp(def.minChargeScale, 1.0f, charge) : 1.0f;
+    float speed = def.projectileSpeed*power;
+    float gravity = (charged && (charge < 1.0f)) ? def.arcGravity : 0.0f;
+    float lifetime = def.range/std::max(def.projectileSpeed*def.minChargeScale, 0.01f);
 
     // Spawn from the eye so projectiles always travel toward the crosshair
-    float lifetime = def.range/std::max(def.projectileSpeed, 0.01f);
-    Projectiles::Spawn(world, Team::Player, origin + direction*0.5f, direction*def.projectileSpeed,
-                       def.projectileRadius, def.damage*context.player->GetDamageMultiplier(), lifetime, def.color);
+    Projectile projectile = {};
+    projectile.team = Team::Player;
+    projectile.damage = GetPlayerDamage(def, context)*power;
+    projectile.radius = def.projectileRadius;
+    projectile.color = def.color;
+    projectile.gravity = gravity;
+    projectile.shape = charged ? ProjectileShape::Arrow : ProjectileShape::Orb;
+    projectile.headshotMultiplier = def.headshotMultiplier;
+    Projectiles::Spawn(world, origin + direction*0.5f, direction*speed, projectile, lifetime);
 }
 
 void PlayerCombat::FireMelee(flecs::world &world, const GameContext &context)
@@ -141,15 +163,15 @@ void PlayerCombat::FireMelee(flecs::world &world, const GameContext &context)
         if (context.level->HasLineOfSight(eye, center)) targets.push_back(enemy);
     });
 
-    float damage = def.damage*player.GetDamageMultiplier();
+    float damage = GetPlayerDamage(def, context);
     for (flecs::entity target : targets)
     {
         const WorldTransform &transform = target.get<WorldTransform>();
         Vector3 contact = transform.position + Vector3{ 0.0f, std::min(eye.y - 0.3f, target.get<Collider>().height*0.6f), 0.0f } +
                           MathUtils::FlatDirection(transform.position, position)*target.get<Collider>().radius;
 
-        context.combatStats->hits++;
-        if (Enemies::ApplyDamage(target, damage)) context.combatStats->kills++;
-        Effects::SpawnImpact(world, contact, 0.1f, BloodColor);
+        DamageResult result = Enemies::ApplyDamage(target, damage);
+        Enemies::RecordHit(*context.combatStats, result, false);
+        Effects::SpawnImpact(world, contact, 0.1f, (result == DamageResult::Immune) ? SparkColor : BloodColor);
     }
 }

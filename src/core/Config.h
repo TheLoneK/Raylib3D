@@ -15,6 +15,12 @@ namespace Config
     // Largest frame step the simulation will take (prevents tunneling on hitches)
     inline constexpr float MaxFrameTime = 1.0f/30.0f;
 
+    // Player damage scale applied on top of every weapon's damage (balance knob)
+    inline constexpr float PlayerWeaponDamageScale = 1.3f;
+
+    // Seconds between killing a boss and loading the next level
+    inline constexpr float LevelTransitionTime = 20.0f;
+
     // Level: true = large level (~3x area) with key/switch doors and the boss, false = the small arena
     inline constexpr bool UseLargeLevel = true;
 

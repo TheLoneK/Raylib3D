@@ -2,6 +2,7 @@
 #include "bosses/Bosses.h"
 #include "combat/DamageZones.h"
 #include "combat/Effects.h"
+#include "combat/Projectiles.h"
 #include "core/MathUtils.h"
 #include "core/MessageFeed.h"
 #include "core/Render.h"
@@ -38,6 +39,10 @@ namespace
     constexpr float BarrageActive = 2.0f;
     constexpr float BarrageDamage = 25.0f;
 
+    constexpr int BoltsPerBurst = 3;                // Soul bolts fired one after another from the staff
+    constexpr float BoltBurstGap = 0.18f;
+    constexpr float BoltChargeTime = 0.4f;          // Staff glows before a burst
+
     constexpr int CrystalCount = 3;
     constexpr float CrystalDistance = 8.0f;
     constexpr float CrystalHover = 0.6f;
@@ -49,6 +54,25 @@ namespace
     constexpr float DeathTime = 1.5f;
 
     const EnemyDef &Def() { return GetEnemyDef(EnemyType::Lich); }
+
+    // Matches the staff drawn in DrawLichBody
+    Vector3 GetStaffOrb(const WorldTransform &transform)
+    {
+        Vector3 up = { 0.0f, 1.0f, 0.0f };
+        Vector3 forward = MathUtils::DirectionFromYaw(transform.yaw);
+        Vector3 right = MathUtils::RightFromYaw(transform.yaw);
+        Vector3 shoulder = transform.position + up*2.15f + right*0.62f;
+        Vector3 hand = shoulder + forward*0.65f - up*0.35f + right*0.1f;
+        return hand + up*1.1f;
+    }
+
+    void FireSoulBolt(flecs::world &world, const WorldTransform &transform, const Player &player)
+    {
+        const EnemyDef &def = Def();
+        Vector3 orb = GetStaffOrb(transform);
+        Vector3 direction = MathUtils::RandomConeDirection(player.GetCenter() - orb, def.aimSpreadDegrees);
+        Projectiles::Spawn(world, Team::Enemy, orb, direction*def.projectileSpeed, def.projectileRadius, def.attackDamage, 4.0f, MagicColor);
+    }
 
     void SpawnZone(flecs::world &world, const Level &level, Vector3 position, float radius, float damage, float warmup, float active)
     {
@@ -123,6 +147,37 @@ namespace
         {
             lich.remove<Invulnerable>();
             context.messages->Push("The Lich's shield shatters!", MagicColor, 4.0f);
+        }
+
+        // Soul bolts: a quick burst from the staff every attackCooldown seconds while the player is in sight
+        attacks.boltTimer -= deltaTime;
+        if (attacks.burstRemaining > 0)
+        {
+            attacks.burstTick -= deltaTime;
+            if (attacks.burstTick <= 0.0f)
+            {
+                if (boss.canSeePlayer) FireSoulBolt(world, transform, player);
+                attacks.burstRemaining--;
+                attacks.burstTick = BoltBurstGap;
+                attacks.castFlash = std::max(attacks.castFlash, 0.7f);
+            }
+        }
+        else
+        {
+            if (boss.canSeePlayer && (attacks.boltTimer < BoltChargeTime))
+            {
+                attacks.castFlash = std::max(attacks.castFlash, 1.0f - std::max(attacks.boltTimer, 0.0f)/BoltChargeTime);
+            }
+            if (attacks.boltTimer <= 0.0f)
+            {
+                if (boss.canSeePlayer)
+                {
+                    attacks.burstRemaining = BoltsPerBurst;
+                    attacks.burstTick = 0.0f;
+                    attacks.boltTimer = Def().attackCooldown;
+                }
+                else attacks.boltTimer = 0.3f;
+            }
         }
 
         attacks.summonTimer -= deltaTime;
@@ -218,6 +273,7 @@ namespace Lich
     {
         LichAttacks attacks = {};
         attacks.summonTimer = 4.0f;
+        attacks.boltTimer = 2.0f;
         attacks.zoneTimer = 2.5f;
         attacks.trailTimer = 8.0f;
         return Bosses::CreateBossEntity(world, BossType::Lich, EnemyType::Lich, position, HoverHeight).set(attacks);

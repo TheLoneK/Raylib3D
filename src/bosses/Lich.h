@@ -5,6 +5,7 @@
 
 //----------------------------------------------------------------------------------
 // Lich: a floating robed undead caster.
+//   Soul bolts a burst of 3 projectiles from the staff every 3 seconds while in sight
 //   Summon     calls in a group of hunting enemies
 //   Zone ring  telegraphed damage zones on and around the player
 //   Barrage    a damage zone under the player every 0.5s for 5s (keep moving!)

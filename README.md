@@ -131,6 +131,7 @@ The boss sits in the last room, behind the last door. `LevelGenSettings::Small` 
 **Bosses**: each level's boss is chosen at random (`Bosses::SpawnRandom`).
 - **Skull Lord**: fires a 3-bolt volley every 2s and drops damage zones around you.
 - **Lich**:
+  - Fires a burst of 3 soul bolts from its staff every 3s while it can see you; the staff glows just before.
   - Summons 4 hunting enemies every 12s.
   - Drops rings of damage zones.
   - Every 14s, puts a zone under you every 0.5s for 5s.

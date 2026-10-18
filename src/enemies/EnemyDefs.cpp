@@ -45,6 +45,8 @@ static const std::array<EnemyDef, static_cast<size_t>(EnemyType::Count)> s_enemy
         .wanderSpeed = 2.0f, .chaseSpeed = 3.0f, .turnSpeed = 2.5f,
         .sightRange = 50.0f, .sightFovDegrees = 360.0f, .memoryTime = 999.0f,
         .attackRange = 45.0f, .preferredRange = 16.0f,
+        .attackDamage = 12.0f, .attackCooldown = 3.0f,     // Soul bolt damage / time between bursts
+        .projectileSpeed = 24.0f, .projectileRadius = 0.3f, .aimSpreadDegrees = 2.0f,
         .headHeightFraction = 0.78f,
         .color = Color{ 70, 40, 95, 255 },
     },

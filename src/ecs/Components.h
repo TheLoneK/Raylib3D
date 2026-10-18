@@ -127,6 +127,9 @@ struct LichAttacks
     float trailTick;            // Time to the next zone of the barrage
     bool crystalsSpawned;       // Half-health phase already triggered
     float castFlash;            // Visual: staff glow after casting
+    float boltTimer;            // Next soul bolt burst
+    int burstRemaining;         // Bolts left in the current burst
+    float burstTick;            // Time to the next bolt of the burst
 };
 
 struct LichCrystal              // Keeps its Lich immune until destroyed

@@ -32,11 +32,21 @@ LevelGenSettings LevelGenSettings::Large(unsigned int seed)
     settings.ammoChance = 60;
     settings.healthChance = 35;
     settings.damageBoostCount = 3;
+    settings.elevatorCount = 4;
+    settings.shuttleCount = 3;
     return settings;
 }
 
 namespace
 {
+    // Moving platform tuning
+    constexpr float ElevatorWidth = 2.0f;
+    constexpr float ElevatorTop = 3.0f;
+    constexpr Vector3 ShuttleSize = { 2.4f, 0.4f, 2.4f };
+    constexpr float ShuttleLowTop = 0.2f;          // Stepped onto from the floor
+    constexpr float ShuttleHighTop = 2.5f;         // High enough to walk under
+    constexpr int ShuttleMinRoomSize = 7;
+
     struct Lock
     {
         int edge;           // Chain edge: connects room edge -> room edge + 1
@@ -72,12 +82,14 @@ namespace
         int PickRoomInRange(int first, int last) const;
         void PlaceKeysAndSwitches(LevelFeatures &features) const;
         void PlacePickups(LevelFeatures &features) const;
+        void PlacePlatforms(LevelFeatures &features);
 
         Level &m_level;
         const LevelGenSettings &m_settings;
         std::vector<LevelRoom> m_rooms;                     // In chain order: room i connects to room i + 1
         std::vector<std::vector<CellCoord>> m_chainPaths;   // Corridor cells for each chain edge
         std::vector<Lock> m_locks;                          // Ordered by edge
+        std::vector<CellCoord> m_reservedCells;             // Platform cells; keys and pickups stay out of them
     };
 
     bool RoomsOverlap(const LevelRoom &a, const LevelRoom &b, int padding)
@@ -351,7 +363,8 @@ namespace
         for (int attempt = 0; attempt < 20; attempt++)
         {
             CellCoord cell = { GetRandomValue(room.x, room.x + room.width - 1), GetRandomValue(room.z, room.z + room.depth - 1) };
-            if (!m_level.IsWall(cell.x, cell.z)) return cell;
+            bool reserved = (std::find(m_reservedCells.begin(), m_reservedCells.end(), cell) != m_reservedCells.end());
+            if (!m_level.IsWall(cell.x, cell.z) && !reserved) return cell;
         }
         return room.Center();
     }
@@ -429,6 +442,63 @@ namespace
         }
     }
 
+    // Elevators go in room corners (out of the way, and the walls frame the ride up).
+    // Shuttles loop around the ring one cell in from the walls of a big room, which stays clear of its pillars
+    void Builder::PlacePlatforms(LevelFeatures &features)
+    {
+        int roomCount = static_cast<int>(m_rooms.size());
+        if (roomCount == 0) return;
+
+        auto isFree = [&](CellCoord cell) {
+            return !m_level.IsWall(cell.x, cell.z) && (std::find(m_reservedCells.begin(), m_reservedCells.end(), cell) == m_reservedCells.end());
+        };
+
+        for (int i = 0; i < m_settings.elevatorCount; i++)
+        {
+            const LevelRoom &room = m_rooms[static_cast<size_t>(GetRandomValue(0, roomCount - 1))];
+            CellCoord corners[] = {
+                { room.x, room.z }, { room.x + room.width - 1, room.z },
+                { room.x, room.z + room.depth - 1 }, { room.x + room.width - 1, room.z + room.depth - 1 },
+            };
+            CellCoord cell = corners[GetRandomValue(0, 3)];
+            if (!isFree(cell)) continue;
+
+            m_reservedCells.push_back(cell);
+            features.platforms.push_back(PlatformSpawn::Elevator(m_level.CellToWorld(cell), ElevatorWidth, ElevatorTop));
+        }
+
+        std::vector<int> bigRooms;
+        for (int i = 0; i < roomCount; i++)
+        {
+            const LevelRoom &room = m_rooms[static_cast<size_t>(i)];
+            if ((room.width >= ShuttleMinRoomSize) && (room.depth >= ShuttleMinRoomSize)) bigRooms.push_back(i);
+        }
+
+        for (int i = 0; (i < m_settings.shuttleCount) && !bigRooms.empty(); i++)
+        {
+            size_t pick = static_cast<size_t>(GetRandomValue(0, static_cast<int>(bigRooms.size()) - 1));
+            const LevelRoom &room = m_rooms[static_cast<size_t>(bigRooms[pick])];
+            bigRooms.erase(bigRooms.begin() + static_cast<std::ptrdiff_t>(pick));     // One shuttle per room
+
+            int left = room.x + 1, right = room.x + room.width - 2;
+            int top = room.z + 1, bottom = room.z + room.depth - 2;
+            CellCoord ring[] = { { left, top }, { right, top }, { right, bottom }, { left, bottom } };
+            int start = GetRandomValue(0, 3);
+            if (!isFree(ring[start])) continue;
+            m_reservedCells.push_back(ring[start]);
+
+            // Boards at floor level, rises on the way to the next corner, loops around high and comes back down
+            std::vector<Vector3> stops;
+            for (int k = 0; k < 4; k++)
+            {
+                Vector3 position = m_level.CellToWorld(ring[(start + k)%4]);
+                position.y = (k == 0) ? ShuttleLowTop : ShuttleHighTop;
+                stops.push_back(position);
+            }
+            features.platforms.push_back(PlatformSpawn::Shuttle(stops, ShuttleSize, PathMode::Loop));
+        }
+    }
+
     bool Builder::IsBossGated() const
     {
         return !m_locks.empty() && m_locks.back().placed && (m_locks.back().edge == static_cast<int>(m_rooms.size()) - 2);
@@ -453,6 +523,7 @@ namespace
         features.playerStart = m_level.GetRoomCenter(0);
         if (m_rooms.size() > 1) features.playerYaw = MathUtils::YawFromDirection(MathUtils::FlatDirection(features.playerStart, m_level.GetRoomCenter(1)));
 
+        PlacePlatforms(features);       // First, so keys and pickups avoid the platform cells
         PlaceKeysAndSwitches(features);
         PlacePickups(features);
 

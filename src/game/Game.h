@@ -51,6 +51,7 @@ private:
     void SpawnLevelFeatures(const LevelFeatures &features);
     void MakeAllEnemiesHunt();
     void SpawnBossNearPlayer();
+    void SpawnElevatorNearPlayer();
     void UpdateLevelTransition(float deltaTime);
 
     flecs::world m_world;                       // Declared first so it is destroyed last
@@ -61,6 +62,7 @@ private:
     RenderAssets m_assets;
     CombatStats m_combatStats = {};
     GameEvents m_events = {};
+    SolidBodyList m_solidBodies;                // Platforms the player collides with, from the last frame
     MessageFeed m_messages;
     PlayerCombat m_playerCombat;
     Interactions m_interactions;

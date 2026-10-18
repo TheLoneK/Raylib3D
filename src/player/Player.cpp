@@ -45,7 +45,7 @@ void Player::Spawn(Vector3 position, float yaw)
     m_yaw = yaw;
 }
 
-void Player::Update(const PlayerInput &input, const Level &level, float deltaTime)
+void Player::Update(const PlayerInput &input, const Level &level, const SolidBodyList &bodies, float deltaTime)
 {
     m_damageFlash = std::max(0.0f, m_damageFlash - deltaTime*2.0f);
     if (!m_isAlive) return;
@@ -57,7 +57,7 @@ void Player::Update(const PlayerInput &input, const Level &level, float deltaTim
     m_yaw -= input.lookDelta.x*sensitivity;
     m_pitch = Clamp(m_pitch - input.lookDelta.y*sensitivity, -PitchLimit, PitchLimit);
 
-    UpdateMovement(input, level, deltaTime);
+    UpdateMovement(input, level, bodies, deltaTime);
 
     float crouchBlend = Clamp(20.0f*deltaTime, 0.0f, 1.0f);
     float leanBlend = Clamp(10.0f*deltaTime, 0.0f, 1.0f);
@@ -104,7 +104,7 @@ void Player::CarryOverFrom(const Player &previous)
 //----------------------------------------------------------------------------------
 // Movement + wall collision
 //----------------------------------------------------------------------------------
-void Player::UpdateMovement(const PlayerInput &input, const Level &level, float deltaTime)
+void Player::UpdateMovement(const PlayerInput &input, const Level &level, const SolidBodyList &bodies, float deltaTime)
 {
     Vector2 move = Vector2{ static_cast<float>(input.sideways), static_cast<float>(-input.forward) };
     if ((input.sideways != 0) && (input.forward != 0)) move = Vector2Normalize(move);    // Slow down diagonal movement
@@ -135,7 +135,15 @@ void Player::UpdateMovement(const PlayerInput &input, const Level &level, float 
 
     m_velocity.x = hvel.x;
     m_velocity.z = hvel.z;
+    float previousFeetY = m_position.y;
     m_position += m_velocity*deltaTime;
+
+    // Platforms first, so the walls get the final say. Standing is re-checked every frame,
+    // which is what makes the player fall off the edge of a platform
+    std::uint64_t previousGround = m_groundBody;
+    m_isGrounded = false;
+    m_groundBody = SolidBodies::None;
+    ResolveSolidBodies(bodies, previousFeetY, previousGround);
 
     // Walls: push out and remove the velocity going into the wall so we slide along it
     Vector3 normal = { 0.0f, 0.0f, 0.0f };
@@ -152,6 +160,78 @@ void Player::UpdateMovement(const PlayerInput &input, const Level &level, float 
         m_velocity.y = 0.0f;
         m_isGrounded = true;
     }
+
+    // Stepping or jumping off a moving platform keeps its momentum (a rising lift throws you higher)
+    if ((previousGround != SolidBodies::None) && (m_groundBody != previousGround))
+    {
+        if (const SolidBody *body = SolidBodies::Find(bodies, previousGround))
+        {
+            m_velocity.x += body->velocity.x;
+            m_velocity.z += body->velocity.z;
+            if (!m_isGrounded) m_velocity.y += body->velocity.y;
+        }
+    }
+}
+
+//----------------------------------------------------------------------------------
+// Solid bodies (moving platforms)
+//----------------------------------------------------------------------------------
+void Player::ResolveSolidBodies(const SolidBodyList &bodies, float previousFeetY, std::uint64_t previousGround)
+{
+    float height = GetHeight();
+    for (const SolidBody &body : bodies)
+    {
+        // A body we were riding carried us already, so relative to it we only moved by our own velocity
+        float relativeSpeed = m_velocity.y - ((body.id == previousGround) ? 0.0f : body.velocity.y);
+        SolidBodies::CylinderMove move = { m_position, Radius, height, previousFeetY, relativeSpeed, 0.0f };
+        SolidBodies::Contact contact = SolidBodies::ResolveCylinder(move, body.bounds);
+        m_position = move.feet;
+        ApplyBodyContact(contact, body);
+    }
+}
+
+void Player::OnBodyMoved(const SolidBody &body, Vector3 delta)
+{
+    if (body.id == m_groundBody)
+    {
+        m_position += delta;
+        return;
+    }
+
+    // Seen from the body, the player moved by -delta: resolve that like the player stepping into it
+    SolidBodies::CylinderMove move = { m_position, Radius, GetHeight(), m_position.y + delta.y, m_velocity.y - body.velocity.y, 0.0f };
+    SolidBodies::Contact contact = SolidBodies::ResolveCylinder(move, body.bounds);
+    m_position = move.feet;
+    ApplyBodyContact(contact, body);
+}
+
+void Player::ApplyBodyContact(const SolidBodies::Contact &contact, const SolidBody &body)
+{
+    switch (contact.type)
+    {
+        case SolidBodies::ContactType::None: break;
+        case SolidBodies::ContactType::Landed:
+        {
+            m_velocity.y = 0.0f;
+            m_isGrounded = true;
+            m_groundBody = body.id;
+        } break;
+        case SolidBodies::ContactType::HitHead:
+        {
+            m_velocity.y = std::min(m_velocity.y, body.velocity.y);
+        } break;
+        case SolidBodies::ContactType::Side:
+        {
+            // Slide along it, like a wall
+            float into = Vector3DotProduct(m_velocity, contact.normal);
+            if (into < 0.0f) m_velocity -= contact.normal*into;
+        } break;
+    }
+}
+
+float Player::GetHeight() const
+{
+    return BottomHeight + m_headHeight + HeadClearance;
 }
 
 void Player::UpdateInventoryInput(const PlayerInput &input)
@@ -240,7 +320,7 @@ Vector3 Player::GetForward() const
 
 BoundingBox Player::GetBounds() const
 {
-    float top = BottomHeight + m_headHeight + HeadClearance;
+    float top = GetHeight();
     return BoundingBox{
         Vector3{ m_position.x - Radius, m_position.y, m_position.z - Radius },
         Vector3{ m_position.x + Radius, m_position.y + top, m_position.z + Radius },

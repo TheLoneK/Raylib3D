@@ -44,6 +44,7 @@ private:
     MapView GetMapView(const Level &level, const Player &player) const;
     void DrawTiles(const MapView &view, const Level &level) const;
     void DrawEnemies(const MapView &view) const;
+    void DrawPlatforms(const MapView &view) const;
     void DrawObjectives(const MapView &view, const Level &level) const;     // Doors, keys, switches, boss
     void DrawPlayerArrow(const MapView &view, const Player &player) const;
 
@@ -54,4 +55,5 @@ private:
     flecs::query<> m_switches;
     flecs::query<> m_bosses;
     flecs::query<> m_crystals;
+    flecs::query<> m_platforms;
 };

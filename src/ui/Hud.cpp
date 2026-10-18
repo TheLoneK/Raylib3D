@@ -435,7 +435,7 @@ void Hud::DrawHelp(const FrameInfo &frame) const
         "1-7 / wheel switch weapon, Q last weapon",
         "RMB aim down sights, E use switch, M map",
         "F2 god mode, F3 spawn wave, F4 all enemies hunt",
-        "F6 spawn a random boss",
+        "F6 spawn a random boss, F7 spawn an elevator",
         "F5 new level, F1 hide help",
     };
     int lineCount = static_cast<int>(std::size(lines));

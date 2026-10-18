@@ -1,5 +1,7 @@
 #pragma once
 
+#include "world/SolidBody.h"
+
 //----------------------------------------------------------------------------------
 // Non-ECS game state that systems need to read or write. Stored in the flecs world
 // as a singleton; systems fetch it with Ecs::GetContext(it).
@@ -34,4 +36,5 @@ struct GameContext
     CombatStats *combatStats;
     MessageFeed *messages;
     GameEvents *events;
+    SolidBodyList *solidBodies;     // Platforms etc., rebuilt every frame for the player
 };

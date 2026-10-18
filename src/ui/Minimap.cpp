@@ -21,6 +21,7 @@ void Minimap::Init(flecs::world &world, const MinimapSettings &settings)
     m_switches = world.query_builder().with<WorldTransform>().with<WallSwitch>().build();
     m_bosses = world.query_builder().with<WorldTransform>().with<Boss>().without<Dead>().build();
     m_crystals = world.query_builder().with<WorldTransform>().with<LichCrystal>().without<Dead>().build();
+    m_platforms = world.query_builder().with<WorldTransform>().with<SolidBox>().with<Platform>().build();
 }
 
 Vector2 Minimap::MapView::WorldToMap(Vector3 world) const
@@ -92,6 +93,18 @@ void Minimap::DrawEnemies(const MapView &view) const
     });
 }
 
+void Minimap::DrawPlatforms(const MapView &view) const
+{
+    m_platforms.each([&](flecs::entity entity) {
+        Vector3 position = entity.get<WorldTransform>().position;
+        Vector3 size = entity.get<SolidBox>().size;
+        Vector2 corner = view.WorldToMap(position - Vector3{ size.x*0.5f, 0.0f, size.z*0.5f });
+        Vector2 extent = Vector2{ size.x*view.scale, size.z*view.scale };
+        DrawRectangleV(corner, extent, Fade(entity.get<Platform>().color, 0.8f));
+        DrawRectangleLinesEx(Rectangle{ corner.x, corner.y, extent.x, extent.y }, 1.0f, Fade(WHITE, 0.6f));
+    });
+}
+
 void Minimap::DrawObjectives(const MapView &view, const Level &level) const
 {
     float cellPixels = level.GetTileSize()*view.scale;
@@ -151,6 +164,7 @@ void Minimap::Draw(const Level &level, const Player &player) const
 
     BeginScissorMode(static_cast<int>(view.bounds.x), static_cast<int>(view.bounds.y), static_cast<int>(view.bounds.width), static_cast<int>(view.bounds.height));
         DrawTiles(view, level);
+        DrawPlatforms(view);
         DrawObjectives(view, level);
         if (m_settings.showEnemies) DrawEnemies(view);
         DrawPlayerArrow(view, player);

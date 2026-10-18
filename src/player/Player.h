@@ -4,6 +4,8 @@
 #include "player/PlayerInput.h"
 #include "weapons/Inventory.h"
 #include "world/Level.h"
+#include "world/SolidBody.h"
+#include <cstdint>
 
 //----------------------------------------------------------------------------------
 // Player: movement, look, health and the weapon inventory
@@ -16,13 +18,17 @@ public:
     static constexpr float BoostedDamageMultiplier = 2.0f;
 
     void Spawn(Vector3 position, float yaw);
-    void Update(const PlayerInput &input, const Level &level, float deltaTime);
+    void Update(const PlayerInput &input, const Level &level, const SolidBodyList &bodies, float deltaTime);
     void UpdateCamera(Camera3D &camera) const;
 
     void TakeDamage(float amount);
     void TakeDamageOverTime(float amount);      // Continuous sources (hazards): no flash spam
     bool Heal(float amount);                    // False when already at full health
     void SetGodMode(bool enabled) { m_godMode = enabled; }
+
+    // Moving platforms: called after a solid body moved by delta. Carries the player when
+    // standing on it, otherwise pushes the player out of it (or lifts them onto its top)
+    void OnBodyMoved(const SolidBody &body, Vector3 delta);
 
     // Power-ups and keys
     void AddDamageBoost(float seconds) { m_damageBoostTimer += seconds; }
@@ -45,6 +51,7 @@ public:
     float GetYaw() const { return m_yaw; }
     float GetHorizontalSpeed() const;
     bool IsGrounded() const { return m_isGrounded; }
+    std::uint64_t GetGroundBody() const { return m_groundBody; }     // Solid body under the feet, SolidBodies::None on the floor / in the air
     bool IsAlive() const { return m_isAlive; }
     bool IsGodMode() const { return m_godMode; }
     float GetHealth() const { return m_health; }
@@ -61,7 +68,10 @@ public:
     void SetLook(float yaw, float pitch) { m_yaw = yaw; m_pitch = pitch; }
 
 private:
-    void UpdateMovement(const PlayerInput &input, const Level &level, float deltaTime);
+    void UpdateMovement(const PlayerInput &input, const Level &level, const SolidBodyList &bodies, float deltaTime);
+    void ResolveSolidBodies(const SolidBodyList &bodies, float previousFeetY, std::uint64_t previousGround);
+    void ApplyBodyContact(const SolidBodies::Contact &contact, const SolidBody &body);
+    float GetHeight() const;            // Feet to top of the collision cylinder
     void UpdateInventoryInput(const PlayerInput &input);
     void UpdateAim(const PlayerInput &input, float deltaTime);
 
@@ -69,6 +79,7 @@ private:
     Vector3 m_velocity = { 0.0f, 0.0f, 0.0f };
     Vector3 m_moveDirection = { 0.0f, 0.0f, 0.0f };
     bool m_isGrounded = true;
+    std::uint64_t m_groundBody = SolidBodies::None;
     float m_yaw = 0.0f;                 // Radians, 0 looks down -Z
     float m_pitch = 0.0f;               // Radians, positive looks up
     Vector2 m_lean = { 0.0f, 0.0f };    // Camera roll/pitch offsets from strafing

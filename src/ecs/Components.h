@@ -4,6 +4,7 @@
 #include "flecs.h"
 #include "enemies/EnemyDefs.h"
 #include "items/PickupTypes.h"
+#include "platforms/PlatformTypes.h"
 #include "weapons/Weapon.h"
 
 //----------------------------------------------------------------------------------
@@ -18,6 +19,7 @@
 //   pickup     = WorldTransform + Pickup
 //   switch     = WorldTransform + WallSwitch
 //   hazard     = WorldTransform + DamageZone + Lifetime
+//   platform   = WorldTransform + Velocity + SolidBox + PathFollower + Platform
 //----------------------------------------------------------------------------------
 
 // Shared
@@ -188,6 +190,29 @@ struct WallSwitch
     int link;                   // Opens every door with the same link tag
     Vector3 normal;             // Facing out of the wall
     bool activated;
+};
+
+// Platforms: SolidBox makes an entity something the player collides with and stands on,
+// PathFollower moves it through stops. Together they make elevators and moving platforms
+struct SolidBox                 // Axis aligned; WorldTransform.position is the center of its top face
+{
+    Vector3 size;
+};
+
+struct PathFollower
+{
+    PathPoint points[MaxPathPoints];
+    int count;
+    PathMode mode;
+    float speed;                // Units per second
+    int target;                 // Stop it is heading to
+    int step;                   // +1 / -1 (PingPong direction)
+    float waitTimer;            // > 0 while paused at a stop
+};
+
+struct Platform
+{
+    Color color;
 };
 
 // Effects

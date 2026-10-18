@@ -9,6 +9,7 @@ A first person shooter framework in C++20 + raylib, using [flecs](https://www.fl
 - Hitscan, projectile, melee and charged-bow weapons in a 7 slot inventory with per-weapon ammo/reloading.
 - Aiming down sights and headshots.
 - Ammo, health and 2x damage pickups.
+- Elevators and moving platforms the player can ride.
 - A minimap and a HUD.
 
 Killing a boss starts a 20 second countdown to the next level, and your weapons, ammo and health carry over. There is no win condition yet. Notes on what multiplayer would take are in [docs/MULTIPLAYER.md](docs/MULTIPLAYER.md).
@@ -50,6 +51,7 @@ If PowerShell blocks the script, see `UsefulScripts.md`.
 | F3 | Spawn another wave of enemies |
 | F4 | Make every enemy hunt you |
 | F6 | Spawn a random boss in front of you |
+| F7 | Spawn an elevator in front of you |
 | F5 | Generate a new level |
 | Enter | Restart the level after dying |
 
@@ -62,13 +64,16 @@ src/
                     MessageFeed (on-screen notices)
   ecs/              Components.h, GameContext.h, Ecs (component registration, Lifetime system)
   world/            Level (tiles, doors, collision, raycasts), LevelGenerator, FlowField (pathing),
-                    SpatialGrid (neighbor queries), LinkTags (door/key/switch colors)
+                    SpatialGrid (neighbor queries), LinkTags (door/key/switch colors),
+                    SolidBody (boxes the player stands on / collides with)
   player/           Player (movement, camera, health), PlayerInput
   weapons/          Weapon (definition table + ammo/reload state), Inventory (7 slots, switching)
   enemies/          EnemyDefs (stats table), Enemies (spawn/damage/headshots/alerts/drops), EnemySystems (AI, crowd, drawing)
   bosses/           Bosses (shared movement, spawning, random boss), SkullLord, Lich
   combat/           PlayerCombat (shooting + melee), Projectiles, Effects, DamageZones
   items/            Pickups (ammo/health/boost/keys), Interactions (switches, key doors)
+  platforms/        PlatformTypes (spawn data + Elevator/Shuttle presets), PlatformPath (waypoint following),
+                    Platforms (spawning, movement/carry systems, drawing)
   ui/               Hud, Minimap
   game/             Game: owns everything and runs a frame
 third_party/flecs/  flecs.c / flecs.h
@@ -88,11 +93,12 @@ Things that exist in large numbers are **entities**; their data lives in plain *
 | Pickup / key | `WorldTransform`, `Pickup` |
 | Wall switch | `WorldTransform`, `WallSwitch` |
 | Damage zone | `WorldTransform`, `DamageZone`, `Lifetime` |
+| Moving platform / elevator | `WorldTransform`, `Velocity`, `SolidBox`, `PathFollower`, `Platform` |
 | Tracer / impact | `Tracer` or `Impact`, plus `Lifetime` |
 
 Each frame `Game::Update` does the following:
 
-1. Moves the player and animates doors.
+1. Moves the player (colliding with last frame's platform boxes) and animates doors.
 2. Handles switches and key doors.
 3. Updates the flow field.
 4. Handles shooting.
@@ -101,8 +107,9 @@ Each frame `Game::Update` does the following:
    2. `BuildEnemyGrid`: puts living enemies into the spatial grid.
    3. `EnemySeparation`: pushes overlapping enemies apart (and out of the player).
    4. `EnemyVisuals`, then `BossMovement`, `SkullLordAttacks`, `LichAbilities`, `LichCrystals`.
-   5. `CollectPickups`, `MoveProjectiles`, `DamageZones`.
-   6. `Lifetime`: destroys expired entities.
+   5. `CollectPickups`, `MovePlatforms` (also carries or pushes the player), `MoveProjectiles`, `DamageZones`.
+   6. `CollectSolidBodies`: rebuilds the platform box list the player collides with next frame.
+   7. `Lifetime`: destroys expired entities.
 
 Draw systems are registered without a phase and run by `Game::Draw` inside `BeginMode3D`/`EndMode3D`. Translucent ones (damage zones) are registered last.
 
@@ -128,6 +135,13 @@ The boss sits in the last room, behind the last door. `LevelGenSettings::Small` 
 - `aimFov` sets each weapon's zoom while aiming; 0 means the weapon can't aim.
 - The bow (`FireMode::Charge`) must be held for `minChargeTime` (0.5s) before a release fires anything. It reaches full power at `fullChargeTime`. Anything short of full power arcs with `arcGravity`, and a full draw flies straight.
 
+**Moving platforms**: a platform is a `SolidBox` (an axis aligned box; `WorldTransform.position` is the center of its top face) that a `PathFollower` moves through up to 8 stops, pausing `wait` seconds at each, in `Loop` or `PingPong` order.
+- The player doesn't know about flecs. `CollectSolidBodies` copies every `SolidBox` into a `SolidBodyList` (`world/SolidBody.h`) that `Player::Update` collides against: it lands on tops, steps up onto anything lower than `SolidBodies::StepHeight` (0.35), bumps its head on bottoms and slides along sides.
+- The player remembers which body it stands on (`GetGroundBody`). After `MovePlatforms` moves a platform it calls `Player::OnBodyMoved`, which carries the player along if they are standing on it, and otherwise pushes them out of the way or lifts them onto the top.
+- Stepping or jumping off keeps the platform's velocity, so jumping from a rising elevator goes higher.
+- The generator places `elevatorCount` elevators (columns in room corners that rise from the floor to 3 units) and `shuttleCount` shuttles (slabs that board at floor level in a big room, rise, and loop around it 2.5 units up). Keys and pickups stay out of their cells.
+- Enemies, bullets and line of sight ignore platforms for now.
+
 **Bosses**: each level's boss is chosen at random (`Bosses::SpawnRandom`).
 - **Skull Lord**: fires a 3-bolt volley every 2s and drops damage zones around you.
 - **Lich**:
@@ -146,6 +160,7 @@ All the tuning lives in constants at the top of `bosses/SkullLord.cpp` and `boss
 - **New door behavior**: add a value to `DoorLock` (`world/Level.h`) and handle it in `Interactions::UpdateDoors`.
 - **New boss**: add a `BossType` and an `EnemyType`, write `bosses/<Name>.h/.cpp` with `Spawn` + `RegisterSystems` like `Lich`, and add it to `Bosses::Spawn` / `Bosses::RegisterSystems`. Random spawning then includes it automatically.
 - **New enemy**: add a value to `EnemyType` (`enemies/EnemyDefs.h`) and its entry in `s_enemyDefs`. Melee vs ranged comes from `attackKind`. Spawn it with `Enemies::Spawn`.
+- **New platform**: build a `PlatformSpawn` (`platforms/PlatformTypes.h`) with a box size, stops and a path mode, or use the `Elevator` / `Shuttle` presets, and pass it to `Platforms::Spawn`. To place them in levels, add them in `Builder::PlacePlatforms` (`world/LevelGenerator.cpp`) or tune `elevatorCount` / `shuttleCount`. A static ledge or crate is just `WorldTransform` + `SolidBox` (add `Platform` to get it drawn); it is solid without any extra code.
 - **New entity kind** (pickups, barrels...): add components to `ecs/Components.h`, register them in `Ecs::RegisterComponents`, and write a `RegisterSystems(world, drawSystems)` function in a feature folder; call it from the `Game` constructor.
 - **Enemy count / behavior / level size**: `core/Config.h` (`UseLargeLevel`, `EnemySpawnCount`, `GunnerFraction`, `EnemiesHuntOnSpawn`).
 - **Debugging the ECS**: set `EnableFlecsExplorer = true` in `core/Config.h`, run the game and open https://www.flecs.dev/explorer to inspect entities and systems live.

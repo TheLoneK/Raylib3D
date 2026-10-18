@@ -26,6 +26,7 @@ Game::Game(unsigned int seed)
 {
     m_camera.fovy = Config::CameraFov;
     m_camera.projection = CAMERA_PERSPECTIVE;
+    m_level.SetSolidBodies(&m_solidBodies);     // Shots and sight checks hit platforms too
 
     // ECS: components, shared context, then systems. Systems in the same phase run in registration order
     Ecs::RegisterComponents(m_world);
@@ -72,10 +73,16 @@ void Game::SpawnEnemies(int count)
 void Game::SpawnLevelFeatures(const LevelFeatures &features)
 {
     for (const KeySpawn &key : features.keys) Pickups::Spawn(m_world, key.position, PickupType::Key, WeaponType::None, key.link);
-    for (const SwitchSpawn &wallSwitch : features.switches) Interactions::SpawnSwitch(m_world, wallSwitch.position, wallSwitch.normal, wallSwitch.link);
+    for (const SwitchSpawn &wallSwitch : features.switches) Interactions::SpawnSwitch(m_world, wallSwitch);
     for (const PickupSpawn &pickup : features.pickups) Pickups::Spawn(m_world, pickup.position, pickup.type, pickup.weapon);
     for (const PlatformSpawn &platform : features.platforms) Platforms::Spawn(m_world, platform);
     if (features.hasBoss) Bosses::SpawnRandom(m_world, features.bossPosition);
+
+    // Door switches send their door's link as the channel; these receivers open the doors
+    for (const Level::Door &door : m_level.GetDoors())
+    {
+        if (door.lock == DoorLock::Switch) Interactions::SpawnDoorOpener(m_world, door.link, door.link);
+    }
 }
 
 void Game::LoadLevel(unsigned int seed, bool keepLoadout)
@@ -109,6 +116,7 @@ void Game::LoadLevel(unsigned int seed, bool keepLoadout)
     m_world.delete_with<Impact>();
     m_world.delete_with<Pickup>();
     m_world.delete_with<WallSwitch>();
+    m_world.delete_with<TriggerTarget>();     // Door openers and anything else wired to this level's switches
     m_world.delete_with<DamageZone>();
     m_world.delete_with<StuckArrow>();
     m_world.delete_with<Platform>();

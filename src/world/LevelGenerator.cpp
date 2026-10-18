@@ -1,8 +1,10 @@
 #include "world/LevelGenerator.h"
 #include "core/MathUtils.h"
+#include "triggers/TriggerChannels.h"
 #include "world/LinkTags.h"
 #include "raymath.h"
 #include <algorithm>
+#include <cstdlib>
 #include <iterator>
 #include <queue>
 
@@ -47,6 +49,15 @@ namespace
     constexpr float ShuttleHighTop = 2.5f;         // High enough to walk under
     constexpr int ShuttleMinRoomSize = 7;
 
+    constexpr float SwitchHeight = 1.4f;
+
+    struct WallFace                 // Inside face of a wall next to an open cell: where a switch can go
+    {
+        CellCoord cell;             // The open cell in front of it
+        Vector3 position;
+        Vector3 normal;             // Out of the wall
+    };
+
     struct Lock
     {
         int edge;           // Chain edge: connects room edge -> room edge + 1
@@ -83,6 +94,8 @@ namespace
         void PlaceKeysAndSwitches(LevelFeatures &features) const;
         void PlacePickups(LevelFeatures &features) const;
         void PlacePlatforms(LevelFeatures &features);
+        std::vector<WallFace> FindWallFaces(const LevelRoom &room) const;     // Skips faces a switch already uses
+        void AddPlatformSwitch(LevelFeatures &features, PlatformSpawn &platform, const LevelRoom &room, CellCoord boardingCell, const char *name);
 
         Level &m_level;
         const LevelGenSettings &m_settings;
@@ -90,6 +103,8 @@ namespace
         std::vector<std::vector<CellCoord>> m_chainPaths;   // Corridor cells for each chain edge
         std::vector<Lock> m_locks;                          // Ordered by edge
         std::vector<CellCoord> m_reservedCells;             // Platform cells; keys and pickups stay out of them
+        std::vector<CellCoord> m_switchCells;               // One platform switch per cell
+        int m_nextChannel = TriggerChannels::FirstFree;
     };
 
     bool RoomsOverlap(const LevelRoom &a, const LevelRoom &b, int padding)
@@ -376,9 +391,30 @@ namespace
         return GetRandomValue(first, std::max(first, last));
     }
 
-    void Builder::PlaceKeysAndSwitches(LevelFeatures &features) const
+    std::vector<WallFace> Builder::FindWallFaces(const LevelRoom &room) const
     {
         float tileSize = m_level.GetTileSize();
+        std::vector<WallFace> faces;
+        for (int z = room.z; z < room.z + room.depth; z++)
+        {
+            for (int x = room.x; x < room.x + room.width; x++)
+            {
+                CellCoord cell = { x, z };
+                if (m_level.IsWall(x, z) || (std::find(m_switchCells.begin(), m_switchCells.end(), cell) != m_switchCells.end())) continue;
+                for (CellCoord step : { CellCoord{ 1, 0 }, CellCoord{ -1, 0 }, CellCoord{ 0, 1 }, CellCoord{ 0, -1 } })
+                {
+                    if (!m_level.IsWall(x + step.x, z + step.z)) continue;
+                    Vector3 direction = Vector3{ static_cast<float>(step.x), 0.0f, static_cast<float>(step.z) };
+                    Vector3 position = m_level.CellToWorld(cell) + direction*(tileSize*0.5f - 0.06f) + Vector3{ 0.0f, SwitchHeight, 0.0f };
+                    faces.push_back(WallFace{ cell, position, direction*-1.0f });
+                }
+            }
+        }
+        return faces;
+    }
+
+    void Builder::PlaceKeysAndSwitches(LevelFeatures &features) const
+    {
         int segmentStart = 0;
 
         for (const Lock &lock : m_locks)
@@ -395,23 +431,11 @@ namespace
                 continue;
             }
 
-            // Switch: any wall face along the inside of the room
-            std::vector<SwitchSpawn> faces;
-            for (int z = room.z; z < room.z + room.depth; z++)
-            {
-                for (int x = room.x; x < room.x + room.width; x++)
-                {
-                    if (m_level.IsWall(x, z)) continue;
-                    for (CellCoord step : { CellCoord{ 1, 0 }, CellCoord{ -1, 0 }, CellCoord{ 0, 1 }, CellCoord{ 0, -1 } })
-                    {
-                        if (!m_level.IsWall(x + step.x, z + step.z)) continue;
-                        Vector3 direction = Vector3{ static_cast<float>(step.x), 0.0f, static_cast<float>(step.z) };
-                        Vector3 position = m_level.CellToWorld(CellCoord{ x, z }) + direction*(tileSize*0.5f - 0.06f) + Vector3{ 0.0f, 1.4f, 0.0f };
-                        faces.push_back(SwitchSpawn{ position, direction*-1.0f, lock.link });
-                    }
-                }
-            }
-            if (!faces.empty()) features.switches.push_back(faces[static_cast<size_t>(GetRandomValue(0, static_cast<int>(faces.size()) - 1))]);
+            // Switch: any free wall face along the inside of the room. It sends the door's link as its channel
+            std::vector<WallFace> faces = FindWallFaces(room);
+            if (faces.empty()) continue;
+            const WallFace &face = faces[static_cast<size_t>(GetRandomValue(0, static_cast<int>(faces.size()) - 1))];
+            features.switches.push_back(SwitchSpawn{ face.position, face.normal, lock.link, SwitchMode::Once, LinkTags::GetColor(lock.link), LinkTags::GetName(lock.link) });
         }
     }
 
@@ -464,7 +488,9 @@ namespace
             if (!isFree(cell)) continue;
 
             m_reservedCells.push_back(cell);
-            features.platforms.push_back(PlatformSpawn::Elevator(m_level.CellToWorld(cell), ElevatorWidth, ElevatorTop));
+            PlatformSpawn elevator = PlatformSpawn::Elevator(m_level.CellToWorld(cell), ElevatorWidth, ElevatorTop);
+            AddPlatformSwitch(features, elevator, room, cell, "ELEVATOR");
+            features.platforms.push_back(elevator);
         }
 
         std::vector<int> bigRooms;
@@ -495,8 +521,26 @@ namespace
                 position.y = (k == 0) ? ShuttleLowTop : ShuttleHighTop;
                 stops.push_back(position);
             }
-            features.platforms.push_back(PlatformSpawn::Shuttle(stops, ShuttleSize, PathMode::Loop));
+            PlatformSpawn shuttle = PlatformSpawn::Shuttle(stops, ShuttleSize, PathMode::Loop);
+            AddPlatformSwitch(features, shuttle, room, ring[start], "PLATFORM");
+            features.platforms.push_back(shuttle);
         }
+    }
+
+    // Some platforms start stopped, with a toggle switch on the wall nearest where you board them
+    void Builder::AddPlatformSwitch(LevelFeatures &features, PlatformSpawn &platform, const LevelRoom &room, CellCoord boardingCell, const char *name)
+    {
+        if (GetRandomValue(0, 99) >= m_settings.switchedPlatformChance) return;
+
+        std::vector<WallFace> faces = FindWallFaces(room);
+        if (faces.empty()) return;
+
+        auto cellDistance = [&](const WallFace &face) { return std::abs(face.cell.x - boardingCell.x) + std::abs(face.cell.z - boardingCell.z); };
+        const WallFace &face = *std::min_element(faces.begin(), faces.end(), [&](const WallFace &a, const WallFace &b) { return cellDistance(a) < cellDistance(b); });
+
+        platform.channel = m_nextChannel++;
+        m_switchCells.push_back(face.cell);
+        features.switches.push_back(SwitchSpawn{ face.position, face.normal, platform.channel, SwitchMode::Toggle, platform.color, name });
     }
 
     bool Builder::IsBossGated() const

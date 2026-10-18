@@ -65,6 +65,37 @@ namespace SolidBodies
         return Contact{ ContactType::Side, Vector3Normalize(push) };
     }
 
+    bool PushOut(const SolidBodyList &bodies, Vector3 &feet, float radius, float height)
+    {
+        bool touched = false;
+        for (const SolidBody &body : bodies)
+        {
+            if ((feet.y >= body.bounds.max.y) || (feet.y + height <= body.bounds.min.y)) continue;
+
+            Vector3 push;
+            if (!OverlapsFootprint(feet, radius, body.bounds, push)) continue;
+            feet.x += push.x;
+            feet.z += push.z;
+            touched = true;
+        }
+        return touched;
+    }
+
+    RayCollision Raycast(const SolidBodyList &bodies, Ray ray, float maxDistance, std::uint64_t *outBody)
+    {
+        RayCollision result = {};
+        result.distance = maxDistance;
+        for (const SolidBody &body : bodies)
+        {
+            RayCollision hit = GetRayCollisionBox(ray, body.bounds);
+            if (!hit.hit || (hit.distance < 0.0f) || (hit.distance >= result.distance)) continue;
+
+            result = hit;
+            if (outBody != nullptr) *outBody = body.id;
+        }
+        return result;
+    }
+
     BoundingBox BoxFromTop(Vector3 topCenter, Vector3 size)
     {
         Vector3 half = { size.x*0.5f, 0.0f, size.z*0.5f };

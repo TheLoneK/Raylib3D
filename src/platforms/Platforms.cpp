@@ -1,7 +1,9 @@
 #include "platforms/Platforms.h"
+#include "core/MessageFeed.h"
 #include "core/Render.h"
 #include "platforms/PlatformPath.h"
 #include "player/Player.h"
+#include "triggers/Triggers.h"
 #include "world/SolidBody.h"
 #include "raymath.h"
 #include <algorithm>
@@ -9,6 +11,8 @@
 namespace
 {
     // Each face gets its own shade, like the level walls
+    constexpr float StoppedShade = 0.6f;       // Stopped (switch-operated) platforms are drawn darker
+
     void DrawPlatformBox(const BoundingBox &box, Color base)
     {
         Vector3 center = (box.min + box.max)*0.5f;
@@ -46,14 +50,17 @@ namespace Platforms
         path.target = (path.count > 1) ? 1 : 0;
         path.step = 1;
         path.waitTimer = (path.count > 0) ? path.points[0].wait : 0.0f;
+        path.running = (spawn.channel < 0);
 
         Vector3 start = (path.count > 0) ? path.points[0].position : Vector3{ 0.0f, 0.0f, 0.0f };
-        return world.entity()
+        flecs::entity platform = world.entity()
             .set(WorldTransform{ start, 0.0f })
             .set(Velocity{ Vector3{ 0.0f, 0.0f, 0.0f } })
             .set(SolidBox{ spawn.size })
             .set(path)
             .set(Platform{ spawn.color });
+        if (spawn.channel >= 0) Triggers::Listen(platform, spawn.channel);
+        return platform;
     }
 
     void RegisterSystems(flecs::world &world, SystemList &drawSystems)
@@ -61,6 +68,12 @@ namespace Platforms
         // Runs after the player moved this frame: whoever stands on a platform is carried with it
         world.system<WorldTransform, Velocity, PathFollower, const SolidBox>("MovePlatforms")
             .each([](flecs::iter &it, size_t row, WorldTransform &transform, Velocity &velocity, PathFollower &path, const SolidBox &box) {
+                if (!path.running)
+                {
+                    velocity.value = Vector3{ 0.0f, 0.0f, 0.0f };
+                    return;
+                }
+
                 float deltaTime = it.delta_time();
                 Vector3 previous = transform.position;
                 transform.position = PlatformPath::Advance(path, previous, deltaTime);
@@ -72,9 +85,9 @@ namespace Platforms
                 Ecs::GetContext(it).player->OnBodyMoved(body, delta);
             });
 
+        // Right after moving, so shots and sight checks later this frame see the new positions.
         // Velocity is optional so static solid boxes (crates, ledges) work too
         world.system<const WorldTransform, const SolidBox, const Velocity *>("CollectSolidBodies")
-            .kind(flecs::PostUpdate)
             .run([](flecs::iter &it) {
                 SolidBodyList &bodies = *Ecs::GetContext(it).solidBodies;
                 bodies.clear();
@@ -91,10 +104,24 @@ namespace Platforms
                 }
             });
 
-        drawSystems.push_back(world.system<const WorldTransform, const SolidBox, const Platform>("DrawPlatforms")
+        // A switch on the platform's channel starts it (lever down) or stops it where it is (lever up)
+        world.observer<const TriggerTarget, PathFollower, Velocity, const Platform>("RunPlatformsOnTrigger")
+            .event<Triggered>()
+            .each([](flecs::iter &it, size_t, const TriggerTarget &, PathFollower &path, Velocity &velocity, const Platform &platform) {
+                const Triggered &event = *it.param<Triggered>();
+                if (path.running == event.on) return;
+
+                path.running = event.on;
+                if (!path.running) velocity.value = Vector3{ 0.0f, 0.0f, 0.0f };
+                Ecs::GetContext(it).messages->Push(path.running ? "Platform running" : "Platform stopped", platform.color, 1.5f);
+            });
+
+        drawSystems.push_back(world.system<const WorldTransform, const SolidBox, const Platform, const PathFollower *>("DrawPlatforms")
             .kind(0)
-            .each([](const WorldTransform &transform, const SolidBox &box, const Platform &platform) {
-                DrawPlatformBox(SolidBodies::BoxFromTop(transform.position, box.size), platform.color);
+            .each([](const WorldTransform &transform, const SolidBox &box, const Platform &platform, const PathFollower *path) {
+                bool stopped = (path != nullptr) && !path->running;
+                Color color = stopped ? Render::Shade(platform.color, StoppedShade) : platform.color;
+                DrawPlatformBox(SolidBodies::BoxFromTop(transform.position, box.size), color);
             }));
     }
 }

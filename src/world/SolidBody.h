@@ -52,6 +52,14 @@ namespace SolidBodies
 
     Contact ResolveCylinder(CylinderMove &move, const BoundingBox &box);
 
+    // Pushes an upright cylinder sideways out of every body it overlaps (enemies: they walk around
+    // platforms instead of standing on them). Returns true on contact
+    bool PushOut(const SolidBodyList &bodies, Vector3 &feet, float radius, float height);
+
+    // Closest body the ray hits within maxDistance. Ray direction must be normalized.
+    // outBody (optional) gets the id of the body that was hit
+    RayCollision Raycast(const SolidBodyList &bodies, Ray ray, float maxDistance, std::uint64_t *outBody = nullptr);
+
     BoundingBox BoxFromTop(Vector3 topCenter, Vector3 size);      // Box whose top face is centered on topCenter
     const SolidBody *Find(const SolidBodyList &bodies, std::uint64_t id);
 }

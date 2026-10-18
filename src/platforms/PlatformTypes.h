@@ -28,6 +28,7 @@ struct PlatformSpawn
     PathMode mode = PathMode::PingPong;
     float speed = 3.0f;                 // Units per second
     Color color = { 200, 150, 60, 255 };
+    int channel = -1;                   // >= 0: starts stopped and listens on this trigger channel (a switch runs it)
 
     // A column rising out of the floor: steps on at floor level, lifts the rider up to topHeight
     static PlatformSpawn Elevator(Vector3 floorCenter, float width, float topHeight, float speed = 2.5f, float wait = 2.0f);

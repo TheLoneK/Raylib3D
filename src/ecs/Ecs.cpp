@@ -26,6 +26,9 @@ namespace Ecs
         world.component<DamageZone>();
         world.component<Pickup>();
         world.component<WallSwitch>();
+        world.component<TriggerTarget>();
+        world.component<Triggered>();
+        world.component<DoorOpener>();
         world.component<SolidBox>();
         world.component<PathFollower>();
         world.component<Platform>();

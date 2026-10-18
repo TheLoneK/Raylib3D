@@ -67,6 +67,7 @@ namespace
         if (Vector3LengthSqr(move) > 0.0001f)
         {
             transform.position += Vector3Normalize(move)*(def.chaseSpeed*deltaTime);
+            SolidBodies::PushOut(*context.solidBodies, transform.position, collider.radius, collider.height);
             level.ResolveCircle(transform.position, collider.radius);
         }
 

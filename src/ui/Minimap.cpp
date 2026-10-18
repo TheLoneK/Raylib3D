@@ -120,7 +120,7 @@ void Minimap::DrawObjectives(const MapView &view, const Level &level) const
     m_switches.each([&](flecs::entity entity) {
         const WallSwitch &wallSwitch = entity.get<WallSwitch>();
         Vector2 position = view.WorldToMap(entity.get<WorldTransform>().position);
-        DrawRectangleV(position - Vector2{ 3.0f, 3.0f }, Vector2{ 6.0f, 6.0f }, wallSwitch.activated ? GRAY : LinkTags::GetColor(wallSwitch.link));
+        DrawRectangleV(position - Vector2{ 3.0f, 3.0f }, Vector2{ 6.0f, 6.0f }, (wallSwitch.activated && (wallSwitch.mode == SwitchMode::Once)) ? GRAY : wallSwitch.color);
     });
 
     m_pickups.each([&](flecs::entity entity) {

@@ -38,6 +38,7 @@ Release/
 
 # Linux/macOS build output
 TestGame
+AssetEditor
 
 # CMake build folder
 build/

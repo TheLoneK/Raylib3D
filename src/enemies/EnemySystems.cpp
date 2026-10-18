@@ -1,5 +1,7 @@
 #include "enemies/EnemySystems.h"
 #include "enemies/Enemies.h"
+#include "assets/AssetLibrary.h"
+#include "assets/AssetSlots.h"
 #include "combat/Projectiles.h"
 #include "core/MathUtils.h"
 #include "core/Render.h"
@@ -304,6 +306,27 @@ namespace
         return 1.0f - brain.attackTimer/def.attackWindup;
     }
 
+    // Imported model (asset editor) in place of the built-in shapes
+    void DrawEnemyModel(const GameContext &context, const WorldTransform &transform, const Enemy &enemy, const EnemyBrain &brain, const EnemyVisual &visual)
+    {
+        const EnemyDef &def = GetEnemyDef(enemy.type);
+        float windup = GetWindup(brain, def);
+        bool moving = (brain.state == EnemyState::Wander) || (brain.state == EnemyState::Chase);
+
+        AssetDrawParams params;
+        params.placement = AssetPlacement(transform.position, transform.yaw);
+        params.fitSize = GetEnemyFitSize(enemy.type);
+        params.flashColor = (visual.hitFlash > 0.0f) ? WHITE : Color{ 255, 220, 80, 255 };
+        params.flash = std::max(visual.hitFlash, windup*0.5f);
+        params.time = moving ? visual.walkCycle*0.4f : static_cast<float>(GetTime());     // Walk animations follow the feet
+        context.library->DrawSlot(GetEnemySlotId(enemy.type), params);
+
+        if ((def.attackKind == AttackKind::Projectile) && (windup > 0.0f))
+        {
+            context.assets->DrawSphere(Enemies::GetMuzzlePosition(transform, def), 0.08f + windup*0.15f, Color{ 255, 160, 60, 255 });
+        }
+    }
+
     void DrawEnemy(const RenderAssets &assets, const WorldTransform &transform, const Collider &collider,
                    const EnemyDef &def, const EnemyBrain &brain, const EnemyVisual &visual)
     {
@@ -352,6 +375,20 @@ namespace
                 if (windup > 0.0f) assets.DrawSphere(muzzle, 0.08f + windup*0.15f, Color{ 255, 160, 60, 255 });
             } break;
         }
+    }
+
+    void DrawCorpseModel(const AssetLibrary &library, const WorldTransform &transform, const Collider &collider, const Enemy &enemy, const Lifetime &lifetime)
+    {
+        // Tip the model over backwards around its right axis, like the built-in corpse
+        float fall = Clamp((lifetime.total - lifetime.remaining)/DeathFallTime, 0.0f, 1.0f);
+        Vector3 right = MathUtils::RightFromYaw(transform.yaw);
+        Vector3 base = transform.position + Vector3{ 0.0f, collider.radius*0.5f*fall, 0.0f };
+
+        AssetDrawParams params;
+        params.placement = MatrixMultiply(MatrixMultiply(MatrixRotateY(transform.yaw), MatrixRotate(right, 90.0f*fall*DEG2RAD)), MatrixTranslate(base.x, base.y, base.z));
+        params.fitSize = GetEnemyFitSize(enemy.type);
+        params.tint = Color{ 140, 140, 140, 255 };
+        library.DrawSlot(GetEnemySlotId(enemy.type), params);
     }
 
     void DrawCorpse(const RenderAssets &assets, const WorldTransform &transform, const Collider &collider, const EnemyDef &def, const Lifetime &lifetime)
@@ -445,7 +482,9 @@ namespace EnemySystems
             .without<Dead>()
             .each([](flecs::iter &it, size_t, const WorldTransform &transform, const Collider &collider, const Enemy &enemy, const EnemyBrain &brain, const EnemyVisual &visual) {
                 if (Render::IsFullyFogged(transform.position, collider.height)) return;
-                DrawEnemy(*Ecs::GetContext(it).assets, transform, collider, GetEnemyDef(enemy.type), brain, visual);
+                const GameContext &context = Ecs::GetContext(it);
+                if (context.library->HasModel(GetEnemySlotId(enemy.type))) DrawEnemyModel(context, transform, enemy, brain, visual);
+                else DrawEnemy(*context.assets, transform, collider, GetEnemyDef(enemy.type), brain, visual);
             }));
 
         drawSystems.push_back(world.system<const WorldTransform, const Collider, const Enemy, const Lifetime>("DrawCorpses")
@@ -455,7 +494,9 @@ namespace EnemySystems
             .without<LichCrystal>()
             .each([](flecs::iter &it, size_t, const WorldTransform &transform, const Collider &collider, const Enemy &enemy, const Lifetime &lifetime) {
                 if (Render::IsFullyFogged(transform.position, collider.height)) return;
-                DrawCorpse(*Ecs::GetContext(it).assets, transform, collider, GetEnemyDef(enemy.type), lifetime);
+                const GameContext &context = Ecs::GetContext(it);
+                if (context.library->HasModel(GetEnemySlotId(enemy.type))) DrawCorpseModel(*context.library, transform, collider, enemy, lifetime);
+                else DrawCorpse(*context.assets, transform, collider, GetEnemyDef(enemy.type), lifetime);
             }));
     }
 }

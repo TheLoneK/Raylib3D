@@ -55,6 +55,11 @@ else()
         GIT_TAG 6.2
         GIT_SHALLOW TRUE)
     FetchContent_MakeAvailable(raylib)
+
+    # raylib leaves some common image formats out by default; the asset library imports them
+    # (also needed for JPG textures embedded in .glb files)
+    target_compile_definitions(raylib PRIVATE SUPPORT_FILEFORMAT_JPG=1 SUPPORT_FILEFORMAT_TGA=1
+                                              SUPPORT_FILEFORMAT_PSD=1 SUPPORT_FILEFORMAT_HDR=1)
 endif()
 
 #-----------------------------------------------------------------------------------
@@ -70,7 +75,25 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     target_compile_options(TestGame PRIVATE -Wall -Wextra -Wno-missing-field-initializers)
 endif()
 
-# MinGW: bundle the C++ runtime so TestGame.exe runs without extra DLLs next to it
+#-----------------------------------------------------------------------------------
+# Asset editor (Editor/): imports models/textures into Assets/ and picks which ones the
+# enemies and weapons use. Shares the asset library code (src/assets) with the game.
+#-----------------------------------------------------------------------------------
+file(GLOB_RECURSE EDITOR_SOURCES CONFIGURE_DEPENDS ${CMAKE_SOURCE_DIR}/Editor/*.cpp)
+file(GLOB ASSET_SOURCES CONFIGURE_DEPENDS ${CMAKE_SOURCE_DIR}/src/assets/*.cpp)
+
+add_executable(AssetEditor ${EDITOR_SOURCES} ${ASSET_SOURCES}
+    src/enemies/EnemyDefs.cpp       # Slot names and sizes come from the game's tables
+    src/weapons/Weapon.cpp)
+target_include_directories(AssetEditor PRIVATE Editor src include)
+target_link_libraries(AssetEditor PRIVATE raylib)
+
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    target_compile_options(AssetEditor PRIVATE -Wall -Wextra -Wno-missing-field-initializers)
+endif()
+
+# MinGW: bundle the C++ runtime so the executables run without extra DLLs next to them
 if(MINGW)
     target_link_options(TestGame PRIVATE -static-libgcc -static-libstdc++ -static)
+    target_link_options(AssetEditor PRIVATE -static-libgcc -static-libstdc++ -static)
 endif()

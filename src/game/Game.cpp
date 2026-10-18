@@ -30,7 +30,7 @@ Game::Game(unsigned int seed)
 
     // ECS: components, shared context, then systems. Systems in the same phase run in registration order
     Ecs::RegisterComponents(m_world);
-    m_world.set(GameContext{ &m_level, &m_player, &m_flowField, &m_enemyGrid, &m_assets, &m_combatStats, &m_messages, &m_events, &m_solidBodies });
+    m_world.set(GameContext{ &m_level, &m_player, &m_flowField, &m_enemyGrid, &m_assets, &m_library, &m_combatStats, &m_messages, &m_events, &m_solidBodies });
 
     EnemySystems::Register(m_world, m_drawSystems);
     Bosses::RegisterSystems(m_world, m_drawSystems);
@@ -43,6 +43,7 @@ Game::Game(unsigned int seed)
     Ecs::RegisterCoreSystems(m_world);
     if (Config::EnableFlecsExplorer) Ecs::EnableExplorer(m_world);
 
+    m_library.Reload();
     m_playerCombat.Init(m_world);
     m_interactions.Init(m_world);
     m_hud.Init(m_world);
@@ -160,6 +161,13 @@ void Game::UpdateLevelTransition(float deltaTime)
     if (m_levelTransitionTimer <= 0.0f) NextLevel();
 }
 
+void Game::ReloadAssetLibrary()
+{
+    // Picks up changes saved by the asset editor without restarting the game
+    int bound = m_library.Reload();
+    m_messages.Push(TextFormat("Reloaded the asset library (%d custom model%s)", bound, (bound == 1) ? "" : "s"), Color{ 120, 200, 255, 255 });
+}
+
 void Game::MakeAllEnemiesHunt()
 {
     m_world.each([](EnemyBrain &brain) { brain.huntsPlayer = true; });
@@ -178,6 +186,7 @@ void Game::UpdateGlobalInput()
     if (IsKeyPressed(KEY_M)) m_minimap.ToggleExpanded();
     if (IsKeyPressed(KEY_F6)) SpawnBossNearPlayer();
     if (IsKeyPressed(KEY_F7)) SpawnElevatorNearPlayer();
+    if (IsKeyPressed(KEY_F8)) ReloadAssetLibrary();
     if (IsKeyPressed(KEY_F5)) LoadLevel(m_seed + 1, false);
     if (!m_player.IsAlive() && IsKeyPressed(KEY_ENTER)) LoadLevel(m_seed, false);
 }
@@ -216,12 +225,14 @@ void Game::Draw()
         ClearBackground(fog.color);
 
         Render::SetView(m_camera.position, fog);
+        m_library.SetView(m_camera.position, fog.color, fog.start, fog.end);
         BeginMode3D(m_camera);
             m_level.Draw();
             Ecs::RunSystems(m_drawSystems);
         EndMode3D();
 
+        bool customViewModel = m_viewModel.Draw(m_player, m_library);
         m_hud.Draw(Hud::FrameInfo{ m_player, m_level, m_minimap, m_messages, m_interactions.GetPrompt(), m_camera, m_seed,
-                                   m_levelNumber, m_levelTransitionTimer });
+                                   m_levelNumber, m_levelTransitionTimer, customViewModel });
     EndDrawing();
 }

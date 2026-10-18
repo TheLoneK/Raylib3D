@@ -53,4 +53,5 @@ private:
     flecs::query<> m_pickups;
     flecs::query<> m_switches;
     flecs::query<> m_bosses;
+    flecs::query<> m_crystals;
 };

@@ -404,7 +404,7 @@ namespace
 
     void Builder::PlacePickups(LevelFeatures &features) const
     {
-        constexpr WeaponType ammoTypes[] = { WeaponType::Pistol, WeaponType::Shotgun, WeaponType::Rifle, WeaponType::Plasma };
+        constexpr WeaponType ammoTypes[] = { WeaponType::Pistol, WeaponType::Shotgun, WeaponType::Rifle, WeaponType::Plasma, WeaponType::Bow };
         int roomCount = static_cast<int>(m_rooms.size());
 
         for (int i = 1; i < roomCount; i++)

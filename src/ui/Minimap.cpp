@@ -20,6 +20,7 @@ void Minimap::Init(flecs::world &world, const MinimapSettings &settings)
     m_pickups = world.query_builder().with<WorldTransform>().with<Pickup>().build();
     m_switches = world.query_builder().with<WorldTransform>().with<WallSwitch>().build();
     m_bosses = world.query_builder().with<WorldTransform>().with<Boss>().without<Dead>().build();
+    m_crystals = world.query_builder().with<WorldTransform>().with<LichCrystal>().without<Dead>().build();
 }
 
 Vector2 Minimap::MapView::WorldToMap(Vector3 world) const
@@ -121,6 +122,11 @@ void Minimap::DrawObjectives(const MapView &view, const Level &level) const
         Vector2 position = view.WorldToMap(entity.get<WorldTransform>().position);
         DrawCircleV(position, 7.0f, Color{ 170, 70, 255, 255 });
         DrawCircleLinesV(position, 9.0f, WHITE);
+    });
+
+    m_crystals.each([&](flecs::entity entity) {
+        Vector2 position = view.WorldToMap(entity.get<WorldTransform>().position);
+        DrawPoly(position, 4, 6.0f, 45.0f, Color{ 90, 230, 255, 255 });
     });
 }
 

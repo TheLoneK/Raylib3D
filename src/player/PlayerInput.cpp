@@ -12,6 +12,7 @@ PlayerInput PlayerInput::Read()
     input.crouchHeld = IsKeyDown(KEY_LEFT_CONTROL);
     input.firePressed = IsMouseButtonPressed(MOUSE_BUTTON_LEFT);
     input.fireHeld = IsMouseButtonDown(MOUSE_BUTTON_LEFT);
+    input.aimHeld = IsMouseButtonDown(MOUSE_BUTTON_RIGHT);
     input.reloadPressed = IsKeyPressed(KEY_R);
     input.lastWeaponPressed = IsKeyPressed(KEY_Q);
     input.interactPressed = IsKeyPressed(KEY_E);

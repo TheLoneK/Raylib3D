@@ -402,6 +402,7 @@ namespace EnemySystems
         world.system<WorldTransform, const Collider>("EnemySeparation")
             .with<Enemy>()
             .without<Dead>()
+            .without<Anchored>()
             .each([](flecs::iter &it, size_t row, WorldTransform &transform, const Collider &collider) {
                 const GameContext &context = Ecs::GetContext(it);
                 std::uint64_t self = it.entity(row).id();
@@ -449,6 +450,7 @@ namespace EnemySystems
             .kind(0)
             .with<Dead>()
             .without<Boss>()
+            .without<LichCrystal>()
             .each([](flecs::iter &it, size_t, const WorldTransform &transform, const Collider &collider, const Enemy &enemy, const Lifetime &lifetime) {
                 if (Render::IsFullyFogged(transform.position, collider.height)) return;
                 DrawCorpse(*Ecs::GetContext(it).assets, transform, collider, GetEnemyDef(enemy.type), lifetime);

@@ -1,5 +1,6 @@
 #include "combat/Projectiles.h"
 #include "combat/Effects.h"
+#include "core/Render.h"
 #include "core/RenderAssets.h"
 #include "ecs/GameContext.h"
 #include "enemies/Enemies.h"
@@ -7,9 +8,21 @@
 #include "world/Level.h"
 #include "world/SpatialGrid.h"
 #include "raymath.h"
+#include <algorithm>
 
 namespace
 {
+    // Shaft, head and fletching; tip is the front point, direction is the flight direction
+    void DrawArrow(const RenderAssets &assets, Vector3 tip, Vector3 direction)
+    {
+        constexpr float Length = 0.9f;
+        Vector3 tail = tip - direction*Length;
+        Color shaft = Render::ApplyFog(Color{ 150, 110, 70, 255 }, tip);
+        assets.DrawCylinderBetween(tail, tip - direction*0.12f, 0.025f, shaft);
+        assets.DrawCylinderBetween(tip - direction*0.14f, tip, 0.05f, Render::ApplyFog(Color{ 170, 170, 180, 255 }, tip));
+        assets.DrawCylinderBetween(tail, tail + direction*0.18f, 0.06f, Render::ApplyFog(Color{ 220, 60, 50, 255 }, tip));
+    }
+
     BoundingBox Expand(BoundingBox box, float amount)
     {
         Vector3 grow = { amount, amount, amount };
@@ -46,19 +59,25 @@ namespace Projectiles
     flecs::entity Spawn(flecs::world &world, Team team, Vector3 position, Vector3 velocity,
                         float radius, float damage, float lifetime, Color color)
     {
+        return Spawn(world, position, velocity, Projectile{ team, damage, radius, color, 0.0f, ProjectileShape::Orb, 1.0f }, lifetime);
+    }
+
+    flecs::entity Spawn(flecs::world &world, Vector3 position, Vector3 velocity, const Projectile &projectile, float lifetime)
+    {
         return world.entity()
             .set(WorldTransform{ position, 0.0f })
             .set(Velocity{ velocity })
-            .set(Projectile{ team, damage, radius, color })
+            .set(projectile)
             .set(Lifetime{ lifetime, lifetime });
     }
 
     void RegisterSystems(flecs::world &world, SystemList &drawSystems)
     {
-        world.system<WorldTransform, const Velocity, const Projectile>("MoveProjectiles")
-            .each([](flecs::iter &it, size_t row, WorldTransform &transform, const Velocity &velocity, const Projectile &projectile) {
+        world.system<WorldTransform, Velocity, const Projectile>("MoveProjectiles")
+            .each([](flecs::iter &it, size_t row, WorldTransform &transform, Velocity &velocity, const Projectile &projectile) {
                 flecs::world world = it.world();
                 const GameContext &context = world.get<GameContext>();
+                velocity.value.y -= projectile.gravity*it.delta_time();     // Arcing shots (partly drawn arrows)
 
                 // Sweep along this frame's movement so fast projectiles cannot tunnel
                 Vector3 step = velocity.value*it.delta_time();
@@ -88,16 +107,23 @@ namespace Projectiles
                     flecs::entity target = FindEnemyHit(world, *context.enemyGrid, ray, travel, projectile.radius, enemyDistance);
                     if (target)
                     {
-                        context.combatStats->hits++;
-                        if (Enemies::ApplyDamage(target, projectile.damage)) context.combatStats->kills++;
                         hitPoint = ray.position + ray.direction*enemyDistance;
+                        bool headshot = Enemies::IsHeadshot(target, hitPoint);
+                        float damage = projectile.damage*(headshot ? projectile.headshotMultiplier : 1.0f);
+                        Enemies::RecordHit(*context.combatStats, Enemies::ApplyDamage(target, damage), headshot);
                         consumed = true;
+                        wallHit.hit = false;
                     }
                 }
 
                 if (consumed)
                 {
-                    Effects::SpawnImpact(world, hitPoint, projectile.radius*1.5f, projectile.color);
+                    // Arrows that hit a wall stay stuck in it for a while
+                    if ((projectile.shape == ProjectileShape::Arrow) && wallHit.hit)
+                    {
+                        world.entity().set(StuckArrow{ hitPoint, ray.direction }).set(Lifetime{ 10.0f, 10.0f });
+                    }
+                    Effects::SpawnImpact(world, hitPoint, std::max(projectile.radius*1.5f, 0.1f), projectile.color);
                     it.entity(row).destruct();
                 }
                 else
@@ -109,9 +135,23 @@ namespace Projectiles
         drawSystems.push_back(world.system<const WorldTransform, const Velocity, const Projectile>("DrawProjectiles")
             .kind(0)
             .each([](flecs::iter &it, size_t, const WorldTransform &transform, const Velocity &velocity, const Projectile &projectile) {
+                const RenderAssets &assets = *Ecs::GetContext(it).assets;
+                if (projectile.shape == ProjectileShape::Arrow)
+                {
+                    DrawArrow(assets, transform.position, Vector3Normalize(velocity.value));
+                    return;
+                }
+
                 // Short trail behind the core makes fast projectiles readable
                 DrawLine3D(transform.position - velocity.value*0.04f, transform.position, Fade(projectile.color, 0.7f));
-                Ecs::GetContext(it).assets->DrawSphere(transform.position, projectile.radius, projectile.color);
+                assets.DrawSphere(transform.position, projectile.radius, projectile.color);
+            }));
+
+        drawSystems.push_back(world.system<const StuckArrow>("DrawStuckArrows")
+            .kind(0)
+            .each([](flecs::iter &it, size_t, const StuckArrow &arrow) {
+                if (Render::IsFullyFogged(arrow.tip, 1.0f)) return;
+                DrawArrow(*Ecs::GetContext(it).assets, arrow.tip, arrow.direction);
             }));
     }
 }

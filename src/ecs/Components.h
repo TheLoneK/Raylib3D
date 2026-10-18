@@ -1,6 +1,7 @@
 #pragma once
 
 #include "raylib.h"
+#include "flecs.h"
 #include "enemies/EnemyDefs.h"
 #include "items/PickupTypes.h"
 #include "weapons/Weapon.h"
@@ -12,7 +13,8 @@
 //   corpse     = an enemy that also has Dead + Lifetime
 //   projectile = WorldTransform + Velocity + Projectile + Lifetime
 //   tracer     = Tracer + Lifetime
-//   boss       = enemy components (minus EnemyBrain) + Boss
+//   boss       = enemy components (minus EnemyBrain) + Boss + SkullLordAttacks / LichAttacks
+//   crystal    = enemy components (minus EnemyBrain) + LichCrystal + Anchored
 //   pickup     = WorldTransform + Pickup
 //   switch     = WorldTransform + WallSwitch
 //   hazard     = WorldTransform + DamageZone + Lifetime
@@ -87,16 +89,50 @@ struct EnemyVisual
     float walkCycle;
 };
 
+struct Invulnerable {};         // Tag: damage is ignored (Lich while its crystals stand)
+struct Anchored {};             // Tag: never pushed around by crowd separation (crystals)
+
+// Bosses: Boss holds what every boss shares; each boss type adds its own attack component
+enum class BossType
+{
+    SkullLord,
+    Lich,
+    Count
+};
+
 struct Boss
 {
+    BossType type;
     bool engaged;               // Wakes up once it sees the player or gets hurt
     bool canSeePlayer;
     float senseTimer;
-    float boltTimer;            // Next bolt volley
-    float zoneTimer;            // Next set of damage zones
+    float hoverHeight;
     float strafeDirection;
     float strafeTimer;
     float bobPhase;
+};
+
+struct SkullLordAttacks
+{
+    float boltTimer;            // Next bolt volley
+    float zoneTimer;            // Next set of damage zones
+};
+
+struct LichAttacks
+{
+    float summonTimer;          // Next enemy summon
+    float zoneTimer;            // Next ring of damage zones
+    float trailTimer;           // Next "zones under the player" barrage
+    float trailRemaining;       // > 0 while a barrage is running
+    float trailTick;            // Time to the next zone of the barrage
+    bool crystalsSpawned;       // Half-health phase already triggered
+    float castFlash;            // Visual: staff glow after casting
+};
+
+struct LichCrystal              // Keeps its Lich immune until destroyed
+{
+    flecs::entity_t owner;
+    float spin;
 };
 
 // Combat
@@ -106,12 +142,21 @@ enum class Team
     Enemy
 };
 
+enum class ProjectileShape
+{
+    Orb,
+    Arrow
+};
+
 struct Projectile
 {
     Team team;              // Projectiles never hurt their own team
     float damage;
     float radius;
     Color color;
+    float gravity;          // Downward acceleration (0 = flies straight)
+    ProjectileShape shape;
+    float headshotMultiplier;
 };
 
 struct DamageZone               // Telegraphed area that hurts anyone of the other team standing in it
@@ -148,6 +193,12 @@ struct Tracer
     Vector3 start;
     Vector3 end;
     Color color;
+};
+
+struct StuckArrow              // Arrow left in a wall
+{
+    Vector3 tip;
+    Vector3 direction;
 };
 
 struct Impact

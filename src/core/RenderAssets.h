@@ -20,9 +20,12 @@ public:
     void DrawCylinder(Vector3 base, float radius, float height, Color color) const;                 // Upright
     void DrawCylinderRotated(Vector3 base, float radius, float height, Vector3 axis, float angleDegrees, Color color) const;
     void DrawBox(Vector3 center, Vector3 size, float yaw, Color color) const;                       // Rotated around Y
+    void DrawCylinderBetween(Vector3 start, Vector3 end, float radius, Color color) const;           // Any orientation
+    void DrawCone(Vector3 base, float radius, float height, Color color) const;                     // Point up (negative height points down)
 
 private:
     Model m_sphere;     // Radius 1, centered
     Model m_cylinder;   // Radius 1, height 1, base at the origin
     Model m_cube;       // Size 1, centered
+    Model m_cone;       // Radius 1, height 1, base at the origin
 };

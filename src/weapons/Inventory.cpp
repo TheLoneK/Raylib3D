@@ -52,6 +52,7 @@ bool Inventory::SelectSlot(int slot)
     if (IsSlotEmpty(slot) || (slot == GetSelectedSlot())) return false;
 
     m_slots[static_cast<size_t>(m_activeSlot)].CancelReload();
+    m_slots[static_cast<size_t>(m_activeSlot)].CancelCharge();
 
     m_previousSlot = m_activeSlot;
     m_pendingSlot = slot;

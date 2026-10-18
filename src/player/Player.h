@@ -27,6 +27,11 @@ public:
     // Power-ups and keys
     void AddDamageBoost(float seconds) { m_damageBoostTimer += seconds; }
     float GetDamageBoostTime() const { return m_damageBoostTimer; }
+    // Aim down sights
+    float GetAimAmount() const { return m_aimAmount; }  // 0 = hip, 1 = fully aimed
+    float GetFov() const;                               // Camera field of view including aim zoom
+    float GetSpreadScale() const;                       // Aiming tightens spread
+
     float GetDamageMultiplier() const { return (m_damageBoostTimer > 0.0f) ? BoostedDamageMultiplier : 1.0f; }
     void AddKey(int link) { m_keys |= (1u << static_cast<unsigned int>(link)); }
     bool HasKey(int link) const { return (m_keys & (1u << static_cast<unsigned int>(link))) != 0u; }
@@ -48,6 +53,9 @@ public:
     Inventory &GetInventory() { return m_inventory; }
     const Inventory &GetInventory() const { return m_inventory; }
 
+    // Keeps weapons/ammo/health when moving to the next level (keys and boosts are per level)
+    void CarryOverFrom(const Player &previous);
+
     // Debug/test helpers
     void SetPosition(Vector3 position) { m_position = position; }
     void SetLook(float yaw, float pitch) { m_yaw = yaw; m_pitch = pitch; }
@@ -55,6 +63,7 @@ public:
 private:
     void UpdateMovement(const PlayerInput &input, const Level &level, float deltaTime);
     void UpdateInventoryInput(const PlayerInput &input);
+    void UpdateAim(const PlayerInput &input, float deltaTime);
 
     Vector3 m_position = { 0.0f, 0.0f, 0.0f };     // Feet
     Vector3 m_velocity = { 0.0f, 0.0f, 0.0f };
@@ -64,6 +73,7 @@ private:
     float m_pitch = 0.0f;               // Radians, positive looks up
     Vector2 m_lean = { 0.0f, 0.0f };    // Camera roll/pitch offsets from strafing
     float m_headHeight = 1.0f;          // Smoothed crouch height
+    float m_aimAmount = 0.0f;
 
     float m_health = MaxHealth;
     bool m_isAlive = true;

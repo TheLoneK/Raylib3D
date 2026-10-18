@@ -27,6 +27,8 @@ public:
         const std::string &prompt;         // Interaction hint under the crosshair
         Camera3D camera;
         unsigned int seed;
+        int levelNumber;
+        float levelTransitionTime;          // < 0 when no transition is pending
     };
 
     void Init(flecs::world &world);
@@ -38,6 +40,9 @@ public:
 private:
     void DrawViewModel(const Player &player) const;
     void DrawChainsaw(const Player &player, const WeaponDef &def, Vector2 base, Vector2 tip) const;
+    void DrawBow(const Player &player, const Weapon &weapon, Vector2 offset) const;
+    void DrawIronSights(const Player &player, Vector2 tip) const;
+    void DrawLevelTransition(float timeLeft) const;
     void DrawStatusEffects(const Player &player) const;
     void DrawMessages(const FrameInfo &frame) const;
     void DrawBossBar() const;
@@ -51,7 +56,10 @@ private:
 
     float m_hitMarkerTimer = 0.0f;
     float m_killMarkerTimer = 0.0f;
+    float m_headshotTimer = 0.0f;
+    float m_immuneTimer = 0.0f;
     bool m_showHelp = true;
     flecs::query<> m_livingEnemies;
     flecs::query<> m_bosses;
+    flecs::query<> m_crystals;
 };
